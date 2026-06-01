@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SKU Upload Analyzer — Vivo V70</title>
+  <title>SKU Upload Analyzer </title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -18,7 +18,7 @@
       padding: 2rem 1rem;
     }
 
-    .container { max-width: 780px; margin: 0 auto; }
+    .container { max-width: 820px; margin: 0 auto; }
 
     h1 { font-size: 22px; font-weight: 500; margin-bottom: 4px; }
     .subtitle { font-size: 13px; color: #666; margin-bottom: 2rem; }
@@ -32,7 +32,7 @@
     }
 
     .section-title { font-size: 15px; font-weight: 500; margin-bottom: 10px; }
-    .label { font-size: 13px; color: #555; margin-bottom: 6px; }
+    .label { font-size: 13px; color: #555; margin-bottom: 6px; display: block; }
     .hint { font-size: 12px; color: #999; margin-top: 5px; }
 
     textarea, input[type=number] {
@@ -51,34 +51,70 @@
     textarea:focus, input[type=number]:focus { border-color: #888; background: #fff; }
     input[type=number] { width: 70px; }
 
+    /* Upload zone */
     .upload-zone {
       border: 1.5px dashed #ccc;
-      border-radius: 12px;
-      padding: 2rem;
+      border-radius: 10px;
+      padding: 1.25rem 1rem;
       text-align: center;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, border-color 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
     }
-    .upload-zone:hover { background: #f5f5f3; }
-    #file-input { display: none; }
-    #file-status { font-size: 12px; margin-top: 8px; color: #555; }
+    .upload-zone:hover { background: #f5f5f3; border-color: #aaa; }
+    .upload-zone.dragover { background: #eef4ff; border-color: #4a90e2; }
+    .upload-zone-text { text-align: left; }
+    .upload-zone-text strong { font-size: 13px; font-weight: 500; display: block; }
+    .upload-zone-text span { font-size: 12px; color: #aaa; }
+    .file-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      background: #eef4ff;
+      color: #2563EB;
+      border-radius: 20px;
+      padding: 3px 10px;
+      margin-top: 6px;
+      cursor: pointer;
+    }
+    .file-badge .x { color: #93b4f5; font-size: 11px; margin-left: 2px; }
+
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0;
+      color: #bbb;
+      font-size: 12px;
+    }
+    .or-divider::before, .or-divider::after {
+      content: '';
+      flex: 1;
+      border-top: 0.5px solid #e0e0e0;
+    }
 
     .threshold-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
-    .run-btn {
-      width: 100%;
-      padding: 11px;
-      font-size: 14px;
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
       font-weight: 500;
-      background: #1a1a18;
-      color: #fff;
-      border: none;
       border-radius: 8px;
       cursor: pointer;
-      margin-top: 0.5rem;
+      border: none;
       transition: opacity 0.15s;
     }
-    .run-btn:hover { opacity: 0.85; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #1a1a18; color: #fff; width: 100%; justify-content: center; padding: 11px; font-size: 14px; margin-top: 0.5rem; }
+    .btn-export { background: #f0f0ee; color: #1a1a18; border: 0.5px solid #ddd; }
+    .btn-export-csv { background: #EAF3DE; color: #3B6D11; }
 
     .divider { border: none; border-top: 0.5px solid #e0e0e0; margin: 1.5rem 0; }
 
@@ -92,7 +128,16 @@
     .stat-val { font-size: 22px; font-weight: 500; }
     .stat-lbl { font-size: 12px; color: #666; margin-top: 2px; }
 
-    .tab-row { display: flex; gap: 6px; margin-bottom: 1rem; }
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tab-row { display: flex; gap: 6px; }
     .tab {
       font-size: 13px;
       padding: 5px 14px;
@@ -104,6 +149,8 @@
       transition: background 0.1s;
     }
     .tab.active { background: #f0f0ee; color: #1a1a18; border-color: #bbb; font-weight: 500; }
+
+    .export-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
     .results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .results-table th {
@@ -132,6 +179,8 @@
     .badge-nodata { background: #f5f5f3; color: #888; }
 
     .variants-list { font-size: 11px; color: #aaa; margin-top: 3px; }
+
+    input[type=file] { display: none; }
   </style>
 </head>
 <body>
@@ -140,59 +189,88 @@
   <h1>SKU upload analyzer</h1>
   <div class="subtitle">Vivo V70 · merchant SKU review · smart variant matching</div>
 
+  <!-- STEP 1: Merchant SKUs -->
   <div class="card">
     <div class="section-title">Step 1 — Merchant submitted SKUs</div>
-    <div class="label">Paste SKU names (one per line)</div>
+    <div class="upload-zone" id="sku-drop-zone">
+      <i class="ti ti-file-text" style="font-size:22px;color:#aaa;flex-shrink:0"></i>
+      <div class="upload-zone-text">
+        <strong>Upload SKU list</strong>
+        <span>.csv or .txt · one SKU per row, first column used</span>
+      </div>
+    </div>
+    <input type="file" id="sku-file-input" accept=".csv,.txt,.tsv">
+    <div id="sku-file-badge" style="display:none">
+      <span class="file-badge" id="sku-badge-label"><i class="ti ti-file"></i> <span id="sku-fname"></span> <span class="x" id="sku-clear">✕</span></span>
+    </div>
+    <div class="or-divider">or type / paste manually</div>
+    <label class="label" for="sku-input">One SKU per line</label>
     <textarea id="sku-input" placeholder="e.g.
 Vivo V70 FE
 Vivo V70 8+256
 Vivo V70 12GB 256GB Black"></textarea>
-    <div class="hint">Parent models (e.g. "Vivo V70 FE") will automatically aggregate all matching variants from contract data.</div>
+    <div class="hint">Parent models (e.g. "Vivo V70 FE") auto-aggregate all matching variants. Duplicates removed.</div>
   </div>
 
+  <!-- STEP 2: Contract data -->
   <div class="card">
     <div class="section-title">Step 2 — Raw contract data</div>
-    <div class="label">Upload a CSV or TSV file <span style="color:#aaa">(columns: model, contracts)</span></div>
-    <div class="upload-zone" id="drop-zone">
-      <i class="ti ti-upload" style="font-size:24px;color:#aaa"></i>
-      <div style="font-size:14px;margin-top:8px;color:#666">Click to upload or drag &amp; drop</div>
-      <div style="font-size:12px;color:#aaa;margin-top:4px">.csv or .tsv · any column order</div>
+    <div class="upload-zone" id="contract-drop-zone">
+      <i class="ti ti-table" style="font-size:22px;color:#aaa;flex-shrink:0"></i>
+      <div class="upload-zone-text">
+        <strong>Upload contract data</strong>
+        <span>.csv or .tsv · columns: model, contracts</span>
+      </div>
     </div>
-    <input type="file" id="file-input" accept=".csv,.tsv,.txt">
-    <div id="file-status"></div>
-    <div style="margin-top:1rem">
-      <div class="label">Or paste raw data directly</div>
-      <textarea id="raw-input" placeholder="model,contracts
+    <input type="file" id="contract-file-input" accept=".csv,.tsv,.txt">
+    <div id="contract-file-badge" style="display:none">
+      <span class="file-badge" id="contract-badge-label"><i class="ti ti-file"></i> <span id="contract-fname"></span> <span class="x" id="contract-clear">✕</span></span>
+    </div>
+    <div class="or-divider">or paste raw data manually</div>
+    <label class="label" for="raw-input">Paste data here</label>
+    <textarea id="raw-input" placeholder="model,contracts
 VIVO VIVO V70 FE 8+256,409
 VIVO VIVO V70 FE 12+256,103
 VIVO VIVO V70 8+256,1199"></textarea>
-      <div class="hint">Handles comma/tab separators. Leading brand prefixes (e.g. "VIVO VIVO") auto-stripped. Commas in numbers handled.</div>
-    </div>
+    <div class="hint">Comma/tab separated. "VIVO VIVO" prefix auto-stripped. Commas in numbers (e.g. 1,199) handled.</div>
   </div>
 
+  <!-- STEP 3: Settings -->
   <div class="card">
     <div class="section-title">Step 3 — Settings</div>
     <div class="threshold-row">
-      <span class="label" style="margin:0;min-width:160px">"Worth uploading" threshold</span>
+      <span class="label" style="margin:0;min-width:170px">"Worth uploading" threshold</span>
       <input type="number" id="threshold" value="5" min="1">
       <span style="font-size:13px;color:#666">or more contracts</span>
     </div>
   </div>
 
-  <button class="run-btn" id="run-btn">Run analysis</button>
+  <button class="btn btn-primary" id="run-btn">
+    <i class="ti ti-chart-bar"></i> Run analysis
+  </button>
 
   <hr class="divider" id="results-divider" style="display:none">
 
+  <!-- RESULTS -->
   <div id="results" style="display:none">
     <div class="stats-grid" id="stats-grid"></div>
 
-    <div class="tab-row">
-      <button class="tab active" data-tab="submitted">Submitted SKUs</button>
-      <button class="tab" data-tab="recommended">Recommended SKUs</button>
+    <div class="results-header">
+      <div class="tab-row">
+        <button class="tab active" data-tab="submitted">Submitted SKUs</button>
+        <button class="tab" data-tab="recommended">Recommended SKUs</button>
+      </div>
+      <div class="export-row">
+        <button class="btn btn-export" id="export-current-btn">
+          <i class="ti ti-download"></i> Export current tab
+        </button>
+        <button class="btn btn-export-csv" id="export-all-btn">
+          <i class="ti ti-file-spreadsheet"></i> Export full report
+        </button>
+      </div>
     </div>
 
     <div id="tab-submitted">
-      <div class="label" style="margin-bottom:8px">Merchant-submitted SKUs — upload eligibility</div>
       <div style="overflow-x:auto">
         <table class="results-table">
           <thead><tr>
@@ -207,7 +285,6 @@ VIVO VIVO V70 8+256,1199"></textarea>
     </div>
 
     <div id="tab-recommended" style="display:none">
-      <div class="label" style="margin-bottom:8px">SKUs not in merchant list — sorted by contracts</div>
       <div style="overflow-x:auto">
         <table class="results-table">
           <thead><tr>
@@ -224,14 +301,19 @@ VIVO VIVO V70 8+256,1199"></textarea>
 </div>
 
 <script>
-(function() {
+(function () {
 
+  // ── State ──────────────────────────────────────────────
+  var analysisData = { submitted: [], recommended: [] };
+  var activeTab = 'submitted';
+
+  // ── Helpers ────────────────────────────────────────────
   function tok(s) {
     return s.toLowerCase()
       .replace(/\bvivo\s+vivo\b/g, 'vivo')
       .replace(/[^a-z0-9+]/g, ' ')
       .replace(/\s+/g, ' ').trim()
-      .split(' ').filter(function(t) { return t.length > 0; });
+      .split(' ').filter(function (t) { return t.length > 0; });
   }
 
   function stripBrand(s) {
@@ -243,7 +325,7 @@ VIVO VIVO V70 8+256,1199"></textarea>
   }
 
   function parseContracts(text) {
-    var lines = text.split(/\n/).map(function(l) { return l.trim(); }).filter(Boolean);
+    var lines = text.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
     var map = {};
     for (var i = 0; i < lines.length; i++) {
       var parts = lines[i].split(/,|\t/);
@@ -257,16 +339,82 @@ VIVO VIVO V70 8+256,1199"></textarea>
       if (!map[key]) map[key] = { name: name, contracts: 0 };
       map[key].contracts += num;
     }
-    return Object.values(map).sort(function(a, b) { return b.contracts - a.contracts; });
+    return Object.values(map).sort(function (a, b) { return b.contracts - a.contracts; });
   }
 
-  function matchesWith(submittedTokens, contractTokens) {
-    var allSubInCon = submittedTokens.every(function(t) { return contractTokens.indexOf(t) > -1; });
-    var allConInSub = contractTokens.every(function(t) { return submittedTokens.indexOf(t) > -1; });
+  // Parse a file uploaded for merchant SKUs — first column of each row
+  function parseSkuFile(text) {
+    var lines = text.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    var skus = [];
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].split(/,|\t/);
+      var sku = parts[0].trim().replace(/^["']|["']$/g, '');
+      if (sku) skus.push(sku);
+    }
+    return skus;
+  }
+
+  function matchesWith(st, ct) {
+    var allSubInCon = st.every(function (t) { return ct.indexOf(t) > -1; });
+    var allConInSub = ct.every(function (t) { return st.indexOf(t) > -1; });
     return allSubInCon || allConInSub;
   }
 
+  // ── File upload: SKU list ──────────────────────────────
+  function setupFileZone(dropZoneId, fileInputId, badgeDivId, fnameId, clearId, onLoad) {
+    var dz = document.getElementById(dropZoneId);
+    var fi = document.getElementById(fileInputId);
+    var badgeDiv = document.getElementById(badgeDivId);
+    var fnameEl = document.getElementById(fnameId);
+    var clearEl = document.getElementById(clearId);
+
+    function loadFile(file) {
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        fnameEl.textContent = file.name;
+        badgeDiv.style.display = '';
+        onLoad(e.target.result, file.name);
+      };
+      reader.readAsText(file);
+    }
+
+    dz.addEventListener('click', function () { fi.click(); });
+    fi.addEventListener('change', function (e) { loadFile(e.target.files[0]); });
+    dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', function () { dz.classList.remove('dragover'); });
+    dz.addEventListener('drop', function (e) {
+      e.preventDefault(); dz.classList.remove('dragover');
+      loadFile(e.dataTransfer.files[0]);
+    });
+    clearEl.addEventListener('click', function (e) {
+      e.stopPropagation();
+      badgeDiv.style.display = 'none';
+      fi.value = '';
+      onLoad('', '');
+    });
+  }
+
+  setupFileZone('sku-drop-zone', 'sku-file-input', 'sku-file-badge', 'sku-fname', 'sku-clear',
+    function (text, fname) {
+      if (!text) { document.getElementById('sku-input').value = ''; return; }
+      var skus = parseSkuFile(text);
+      // Skip header-like first row if it doesn't look like a SKU
+      if (skus.length && /^(sku|model|name|product)/i.test(skus[0])) skus.shift();
+      document.getElementById('sku-input').value = skus.join('\n');
+    }
+  );
+
+  setupFileZone('contract-drop-zone', 'contract-file-input', 'contract-file-badge', 'contract-fname', 'contract-clear',
+    function (text, fname) {
+      if (!text) { document.getElementById('raw-input').value = ''; return; }
+      document.getElementById('raw-input').value = text;
+    }
+  );
+
+  // ── Tab switching ──────────────────────────────────────
   function showTab(tabName) {
+    activeTab = tabName;
     document.getElementById('tab-submitted').style.display = tabName === 'submitted' ? '' : 'none';
     document.getElementById('tab-recommended').style.display = tabName === 'recommended' ? '' : 'none';
     var tabs = document.querySelectorAll('.tab');
@@ -275,28 +423,33 @@ VIVO VIVO V70 8+256,1199"></textarea>
     }
   }
 
+  document.querySelectorAll('.tab').forEach(function (btn) {
+    btn.addEventListener('click', function () { showTab(btn.getAttribute('data-tab')); });
+  });
+
+  // ── Run analysis ───────────────────────────────────────
   function runAnalysis() {
     var rawSkus = document.getElementById('sku-input').value.trim();
     var rawData = document.getElementById('raw-input').value.trim();
     var threshold = parseInt(document.getElementById('threshold').value, 10) || 5;
 
-    if (!rawSkus) { alert('Please enter at least one merchant SKU.'); return; }
-    if (!rawData) { alert('Please provide raw contract data.'); return; }
+    if (!rawSkus) { alert('Please enter or upload at least one merchant SKU.'); return; }
+    if (!rawData) { alert('Please provide or upload raw contract data.'); return; }
 
     var seen = {};
-    var merchantSkus = rawSkus.split('\n').map(function(s) { return s.trim(); }).filter(function(s) {
-      if (!s || seen[s]) return false;
-      seen[s] = true;
+    var merchantSkus = rawSkus.split('\n').map(function (s) { return s.trim(); }).filter(function (s) {
+      if (!s || seen[s.toLowerCase()]) return false;
+      seen[s.toLowerCase()] = true;
       return true;
     });
 
     var contractData = parseContracts(rawData);
     if (!contractData.length) { alert('Could not parse contract data. Check format.'); return; }
 
-    var submittedRows = merchantSkus.map(function(sku) {
+    var submittedRows = merchantSkus.map(function (sku) {
       var st = tok(sku);
-      var matches = contractData.filter(function(d) { return matchesWith(st, tok(d.name)); });
-      var total = matches.reduce(function(s, d) { return s + d.contracts; }, 0);
+      var matches = contractData.filter(function (d) { return matchesWith(st, tok(d.name)); });
+      var total = matches.reduce(function (s, d) { return s + d.contracts; }, 0);
       var worth = total >= threshold;
       var note;
       if (!matches.length) note = 'No match in data';
@@ -307,30 +460,33 @@ VIVO VIVO V70 8+256,1199"></textarea>
     });
 
     var coveredNames = {};
-    submittedRows.forEach(function(r) {
-      r.matches.forEach(function(m) { coveredNames[m.name.toLowerCase()] = true; });
+    submittedRows.forEach(function (r) {
+      r.matches.forEach(function (m) { coveredNames[m.name.toLowerCase()] = true; });
     });
 
     var recRows = contractData
-      .filter(function(d) { return !coveredNames[d.name.toLowerCase()] && d.contracts >= threshold; })
-      .sort(function(a, b) { return b.contracts - a.contracts; })
-      .slice(0, 30);
+      .filter(function (d) { return !coveredNames[d.name.toLowerCase()] && d.contracts >= threshold; })
+      .sort(function (a, b) { return b.contracts - a.contracts; })
+      .slice(0, 50);
 
-    var worthCount = submittedRows.filter(function(r) { return r.worth; }).length;
-    var notWorthCount = submittedRows.filter(function(r) { return !r.worth; }).length;
+    analysisData = { submitted: submittedRows, recommended: recRows, threshold: threshold };
 
+    // Stats
+    var worthCount = submittedRows.filter(function (r) { return r.worth; }).length;
+    var notWorthCount = submittedRows.filter(function (r) { return !r.worth; }).length;
     document.getElementById('stats-grid').innerHTML =
       '<div class="stat"><div class="stat-val">' + merchantSkus.length + '</div><div class="stat-lbl">Submitted SKUs</div></div>' +
       '<div class="stat"><div class="stat-val" style="color:#3B6D11">' + worthCount + '</div><div class="stat-lbl">Worth uploading</div></div>' +
       '<div class="stat"><div class="stat-val" style="color:#A32D2D">' + notWorthCount + '</div><div class="stat-lbl">Not worth uploading</div></div>' +
       '<div class="stat"><div class="stat-val" style="color:#185FA5">' + recRows.length + '</div><div class="stat-lbl">Recommended additions</div></div>';
 
+    // Submitted table
     var submittedHTML = '';
     for (var i = 0; i < submittedRows.length; i++) {
       var r = submittedRows[i];
       var variantList = '';
       if (r.matches.length > 1) {
-        variantList = '<div class="variants-list">' + r.matches.map(function(m) {
+        variantList = '<div class="variants-list">' + r.matches.map(function (m) {
           return m.name + ' (' + Math.round(m.contracts) + ')';
         }).join(' · ') + '</div>';
       } else if (r.matches.length === 1 && r.note !== 'Exact match') {
@@ -348,6 +504,7 @@ VIVO VIVO V70 8+256,1199"></textarea>
     }
     document.getElementById('submitted-body').innerHTML = submittedHTML;
 
+    // Recommended table
     var recHTML = '';
     if (recRows.length) {
       for (var j = 0; j < recRows.length; j++) {
@@ -368,45 +525,70 @@ VIVO VIVO V70 8+256,1199"></textarea>
     showTab('submitted');
   }
 
-  // Event listeners — no inline onclick handlers
   document.getElementById('run-btn').addEventListener('click', runAnalysis);
 
-  document.querySelectorAll('.tab').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      showTab(btn.getAttribute('data-tab'));
+  // ── Export ─────────────────────────────────────────────
+  function escCsv(val) {
+    var s = String(val);
+    if (s.indexOf(',') > -1 || s.indexOf('"') > -1 || s.indexOf('\n') > -1) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+
+  function rowToCsv(arr) {
+    return arr.map(escCsv).join(',');
+  }
+
+  function downloadCsv(filename, rows) {
+    var csv = rows.map(rowToCsv).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCurrentTab() {
+    if (!analysisData.submitted.length) return;
+    if (activeTab === 'submitted') {
+      var rows = [['Submitted SKU', 'Total Contracts', 'Status', 'Note', 'Matched Variants']];
+      analysisData.submitted.forEach(function (r) {
+        var status = r.worth ? 'Worth uploading' : (r.matches.length ? 'Not worth it' : 'No data');
+        var variants = r.matches.map(function (m) { return m.name + ' (' + Math.round(m.contracts) + ')'; }).join('; ');
+        rows.push([r.sku, Math.round(r.total), status, r.note, variants]);
+      });
+      downloadCsv('submitted_skus_analysis.csv', rows);
+    } else {
+      var rows2 = [['SKU', 'Contracts', 'Recommendation']];
+      analysisData.recommended.forEach(function (r) {
+        rows2.push([r.name, Math.round(r.contracts), 'Recommend upload']);
+      });
+      downloadCsv('recommended_skus.csv', rows2);
+    }
+  }
+
+  function exportFullReport() {
+    if (!analysisData.submitted.length) return;
+    var rows = [['Section', 'SKU', 'Total Contracts', 'Status', 'Note', 'Matched Variants']];
+    analysisData.submitted.forEach(function (r) {
+      var status = r.worth ? 'Worth uploading' : (r.matches.length ? 'Not worth it' : 'No data');
+      var variants = r.matches.map(function (m) { return m.name + ' (' + Math.round(m.contracts) + ')'; }).join('; ');
+      rows.push(['Submitted', r.sku, Math.round(r.total), status, r.note, variants]);
     });
-  });
+    rows.push(['', '', '', '', '', '']);
+    analysisData.recommended.forEach(function (r) {
+      rows.push(['Recommended', r.name, Math.round(r.contracts), 'Recommend upload', '', '']);
+    });
+    downloadCsv('sku_analysis_full_report.csv', rows);
+  }
 
-  document.getElementById('drop-zone').addEventListener('click', function() {
-    document.getElementById('file-input').click();
-  });
-
-  document.getElementById('file-input').addEventListener('change', function(e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      document.getElementById('raw-input').value = ev.target.result;
-      document.getElementById('file-status').textContent = 'Loaded: ' + file.name;
-    };
-    reader.readAsText(file);
-  });
-
-  var dz = document.getElementById('drop-zone');
-  dz.addEventListener('dragover', function(e) { e.preventDefault(); dz.style.background = '#f5f5f3'; });
-  dz.addEventListener('dragleave', function() { dz.style.background = ''; });
-  dz.addEventListener('drop', function(e) {
-    e.preventDefault();
-    dz.style.background = '';
-    var file = e.dataTransfer.files[0];
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      document.getElementById('raw-input').value = ev.target.result;
-      document.getElementById('file-status').textContent = 'Loaded: ' + file.name;
-    };
-    reader.readAsText(file);
-  });
+  document.getElementById('export-current-btn').addEventListener('click', exportCurrentTab);
+  document.getElementById('export-all-btn').addEventListener('click', exportFullReport);
 
 })();
 </script>
