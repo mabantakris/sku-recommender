@@ -377,13 +377,13 @@
       <div class="ds-label">③ Internal SKU Catalog <span>· saved locally</span></div>
       <button class="upload-btn" id="catalog-upload-btn">
         <span class="icon">🗂️</span>
-        <span id="catalog-btn-text">Upload internal catalog</span>
+        <span id="catalog-btn-text">Upload catalogue .xlsx</span>
         <span class="fname" id="catalog-fname" style="display:none"></span>
         <span class="clear" id="catalog-clear" style="display:none">✕</span>
       </button>
       <input type="file" id="catalog-file-input" accept=".csv,.tsv,.txt,.xlsx">
       <div class="or-text">or paste</div>
-      <textarea class="ds-paste" id="catalog-input" placeholder="internal_sku,label&#10;V70-FE-8-256,V70 FE 8GB 256GB&#10;V70-12-256,V70 12GB 256GB"></textarea>
+      <textarea class="ds-paste" id="catalog-input" placeholder="internal_sku,label&#10;Honor-400 5G 512/12 Desert Gold,Honor 400 5G 512/12 Desert Gold&#10;&#10;Or just upload your catalogue .xlsx — Internal SKU ID column is auto-detected"></textarea>
     </div>
 
     <!-- Settings -->
@@ -567,7 +567,11 @@
           try {
             var data = new Uint8Array(e.target.result);
             var wb = XLSX.read(data, { type: 'array' });
-            var ws = wb.Sheets[wb.SheetNames[0]];
+            var sheetName = wb.SheetNames[0];
+            for (var s = 0; s < wb.SheetNames.length; s++) {
+              if (/offers/i.test(wb.SheetNames[s])) { sheetName = wb.SheetNames[s]; break; }
+            }
+            var ws = wb.Sheets[sheetName];
             var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
             resolve({ rows: rows, text: null });
           } catch(err){ reject(err); }
@@ -630,21 +634,49 @@
   // Convert rows → catalog [{internal_sku, label}]
   function rowsToCatalog(rows) {
     if (!rows || !rows.length) return [];
-    var skuCol = 0, labelCol = 1, startRow = 0;
-    var first = rows[0].map(function(c){ return String(c||'').toLowerCase(); });
-    if (/internal|sku|id|code|label|name/i.test(first.join(' '))) startRow = 1;
-    // Try to find columns
-    for (var c = 0; c < first.length; c++) {
-      if (/internal|sku|id|code/i.test(first[c])) skuCol = c;
-      if (/label|name|desc/i.test(first[c])) labelCol = c;
+
+    // Find header row (first row that contains "Internal SKU ID" or similar)
+    var headerRowIdx = -1;
+    var skuCol = -1, labelCol = -1;
+    for (var r = 0; r < Math.min(rows.length, 5); r++) {
+      var cells = rows[r].map(function(c){ return String(c||'').toLowerCase().trim(); });
+      for (var c = 0; c < cells.length; c++) {
+        if (cells[c] === 'internal sku id' || cells[c] === 'internal_sku_id' || cells[c] === 'internal sku') {
+          skuCol = c; headerRowIdx = r;
+        }
+        if (cells[c] === 'product name' || cells[c] === 'product_name') {
+          labelCol = c;
+        }
+      }
+      if (skuCol > -1) break;
     }
+
+    // Fallback: generic column detection
+    if (skuCol === -1) {
+      var first = rows[0].map(function(c){ return String(c||'').toLowerCase(); });
+      headerRowIdx = /internal|sku|id|code|label|name/i.test(first.join(' ')) ? 0 : -1;
+      for (var c2 = 0; c2 < first.length; c2++) {
+        if (skuCol === -1 && /internal.*sku|sku.*id/i.test(first[c2])) skuCol = c2;
+        else if (skuCol === -1 && /\bsku\b|\bid\b|code/i.test(first[c2])) skuCol = c2;
+        if (labelCol === -1 && /product.name|label|name|desc/i.test(first[c2])) labelCol = c2;
+      }
+      if (skuCol === -1) skuCol = 0;
+    }
+
+    if (labelCol === -1) labelCol = skuCol; // fallback: use sku as label too
+    var startRow = headerRowIdx + 1;
+    if (startRow <= 0) startRow = 0;
+
+    var seen = {};
     var out = [];
     for (var i = startRow; i < rows.length; i++) {
       var row = rows[i];
       if (!row) continue;
       var sku = String(row[skuCol]||'').trim();
       var lbl = String(row[labelCol]||row[skuCol]||'').trim();
-      if (sku) out.push({ internal_sku: sku, label: lbl || sku });
+      if (!sku || seen[sku]) continue;
+      seen[sku] = true;
+      out.push({ internal_sku: sku, label: lbl || sku });
     }
     return out;
   }
