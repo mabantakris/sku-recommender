@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -300,68 +301,202 @@ VIVO VIVO V70 8+256,1199"></textarea>
 
 </div>
 
+```html
 <script>
 (function () {
 
-  // ── State ──────────────────────────────────────────────
-  var analysisData = { submitted: [], recommended: [] };
+  // ─────────────────────────────────────────────
+  // STATE
+  // ─────────────────────────────────────────────
+
+  var analysisData = {
+    submitted: [],
+    recommended: []
+  };
+
   var activeTab = 'submitted';
 
-  // ── Helpers ────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────
+
   function tok(s) {
     return s.toLowerCase()
       .replace(/\bvivo\s+vivo\b/g, 'vivo')
       .replace(/[^a-z0-9+]/g, ' ')
-      .replace(/\s+/g, ' ').trim()
-      .split(' ').filter(function (t) { return t.length > 0; });
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(function(t) {
+        return t.length > 0;
+      });
   }
 
   function stripBrand(s) {
-    return s.replace(/^vivo\s+vivo\s+/i, 'vivo ').replace(/^vivo\s+/i, '').trim();
+    return s
+      .replace(/^vivo\s+vivo\s+/i, 'vivo ')
+      .replace(/^vivo\s+/i, '')
+      .trim();
   }
 
   function normalizeNum(s) {
-    return parseFloat(s.replace(/,/g, '').replace(/[^0-9.]/g, ''));
+    return Number(
+      String(s)
+        .replace(/,/g, '')
+        .replace(/[^\d.]/g, '')
+    );
   }
+
+  // ─────────────────────────────────────────────
+  // PARSE CONTRACT DATA
+  // ─────────────────────────────────────────────
 
   function parseContracts(text) {
-    var lines = text.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+
+    var lines = text
+      .split(/\r?\n/)
+      .map(function(l) {
+        return l.trim();
+      })
+      .filter(Boolean);
+
     var map = {};
+
     for (var i = 0; i < lines.length; i++) {
-      var parts = lines[i].split(/,|\t/);
-      if (parts.length < 2) continue;
-      var numStr = parts[parts.length - 1].trim();
-      var num = normalizeNum(numStr);
-      if (isNaN(num)) continue;
-      var rawName = parts.slice(0, parts.length - 1).join(' ').trim();
+
+      var line = lines[i];
+
+      // Skip headers
+      if (
+        i === 0 &&
+        /model/i.test(line) &&
+        /contract/i.test(line)
+      ) {
+        continue;
+      }
+
+      // Match:
+      // model,1234
+      // model\t1234
+      // model,1,234
+      var match = line.match(/^(.*?)[,\t]\s*([\d,\.]+)\s*$/);
+
+      if (!match) continue;
+
+      var rawName = match[1].trim();
+
+      var contracts = normalizeNum(match[2]);
+
+      if (isNaN(contracts)) continue;
+
       var name = stripBrand(rawName);
+
       var key = name.toLowerCase();
-      if (!map[key]) map[key] = { name: name, contracts: 0 };
-      map[key].contracts += num;
+
+      if (!map[key]) {
+        map[key] = {
+          name: name,
+          contracts: 0
+        };
+      }
+
+      map[key].contracts += contracts;
     }
-    return Object.values(map).sort(function (a, b) { return b.contracts - a.contracts; });
+
+    return Object.values(map)
+      .sort(function(a, b) {
+        return b.contracts - a.contracts;
+      });
   }
 
-  // Parse a file uploaded for merchant SKUs — first column of each row
+  // ─────────────────────────────────────────────
+  // PARSE SKU FILE
+  // ─────────────────────────────────────────────
+
   function parseSkuFile(text) {
-    var lines = text.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+
+    var lines = text
+      .split(/\r?\n/)
+      .map(function(l) {
+        return l.trim();
+      })
+      .filter(Boolean);
+
     var skus = [];
+
     for (var i = 0; i < lines.length; i++) {
-      var parts = lines[i].split(/,|\t/);
-      var sku = parts[0].trim().replace(/^["']|["']$/g, '');
-      if (sku) skus.push(sku);
+
+      var row = lines[i];
+
+      var firstCol = row.split(/,|\t/)[0];
+
+      if (!firstCol) continue;
+
+      firstCol = firstCol
+        .replace(/^["']|["']$/g, '')
+        .trim();
+
+      if (firstCol) {
+        skus.push(firstCol);
+      }
     }
+
     return skus;
   }
 
+  // ─────────────────────────────────────────────
+  // MATCHING
+  // ─────────────────────────────────────────────
+
   function matchesWith(st, ct) {
-    var allSubInCon = st.every(function (t) { return ct.indexOf(t) > -1; });
-    var allConInSub = ct.every(function (t) { return st.indexOf(t) > -1; });
+
+    var allSubInCon = st.every(function(t) {
+      return ct.indexOf(t) > -1;
+    });
+
+    var allConInSub = ct.every(function(t) {
+      return st.indexOf(t) > -1;
+    });
+
     return allSubInCon || allConInSub;
   }
 
-  // ── File upload: SKU list ──────────────────────────────
-  function setupFileZone(dropZoneId, fileInputId, badgeDivId, fnameId, clearId, onLoad) {
+  // ─────────────────────────────────────────────
+  // EXCEL SUPPORT
+  // ─────────────────────────────────────────────
+
+  function excelToCsvText(arrayBuffer) {
+
+    var workbook = XLSX.read(arrayBuffer, {
+      type: 'array'
+    });
+
+    var firstSheet =
+      workbook.Sheets[workbook.SheetNames[0]];
+
+    var rows = XLSX.utils.sheet_to_json(firstSheet, {
+      header: 1,
+      defval: ''
+    });
+
+    return rows.map(function(row) {
+      return row.join(',');
+    }).join('\n');
+  }
+
+  // ─────────────────────────────────────────────
+  // FILE ZONE
+  // ─────────────────────────────────────────────
+
+  function setupFileZone(
+    dropZoneId,
+    fileInputId,
+    badgeDivId,
+    fnameId,
+    clearId,
+    onLoad
+  ) {
+
     var dz = document.getElementById(dropZoneId);
     var fi = document.getElementById(fileInputId);
     var badgeDiv = document.getElementById(badgeDivId);
@@ -369,228 +504,703 @@ VIVO VIVO V70 8+256,1199"></textarea>
     var clearEl = document.getElementById(clearId);
 
     function loadFile(file) {
+
       if (!file) return;
+
+      var isExcel =
+        /\.xlsx$/i.test(file.name) ||
+        /\.xls$/i.test(file.name);
+
       var reader = new FileReader();
-      reader.onload = function (e) {
+
+      reader.onload = function(e) {
+
         fnameEl.textContent = file.name;
+
         badgeDiv.style.display = '';
-        onLoad(e.target.result, file.name);
+
+        if (isExcel) {
+
+          var text = excelToCsvText(
+            e.target.result
+          );
+
+          onLoad(text, file.name);
+
+        } else {
+
+          onLoad(
+            e.target.result,
+            file.name
+          );
+        }
       };
-      reader.readAsText(file);
+
+      if (isExcel) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsText(file);
+      }
     }
 
-    dz.addEventListener('click', function () { fi.click(); });
-    fi.addEventListener('change', function (e) { loadFile(e.target.files[0]); });
-    dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('dragover'); });
-    dz.addEventListener('dragleave', function () { dz.classList.remove('dragover'); });
-    dz.addEventListener('drop', function (e) {
-      e.preventDefault(); dz.classList.remove('dragover');
+    dz.addEventListener('click', function() {
+      fi.click();
+    });
+
+    fi.addEventListener('change', function(e) {
+      loadFile(e.target.files[0]);
+    });
+
+    dz.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      dz.classList.add('dragover');
+    });
+
+    dz.addEventListener('dragleave', function() {
+      dz.classList.remove('dragover');
+    });
+
+    dz.addEventListener('drop', function(e) {
+
+      e.preventDefault();
+
+      dz.classList.remove('dragover');
+
       loadFile(e.dataTransfer.files[0]);
     });
-    clearEl.addEventListener('click', function (e) {
+
+    clearEl.addEventListener('click', function(e) {
+
       e.stopPropagation();
+
       badgeDiv.style.display = 'none';
+
       fi.value = '';
+
       onLoad('', '');
     });
   }
 
-  setupFileZone('sku-drop-zone', 'sku-file-input', 'sku-file-badge', 'sku-fname', 'sku-clear',
-    function (text, fname) {
-      if (!text) { document.getElementById('sku-input').value = ''; return; }
+  // ─────────────────────────────────────────────
+  // SKU FILE
+  // ─────────────────────────────────────────────
+
+  setupFileZone(
+    'sku-drop-zone',
+    'sku-file-input',
+    'sku-file-badge',
+    'sku-fname',
+    'sku-clear',
+
+    function(text) {
+
+      if (!text) {
+
+        document.getElementById('sku-input').value = '';
+
+        return;
+      }
+
       var skus = parseSkuFile(text);
-      // Skip header-like first row if it doesn't look like a SKU
-      if (skus.length && /^(sku|model|name|product)/i.test(skus[0])) skus.shift();
-      document.getElementById('sku-input').value = skus.join('\n');
+
+      if (
+        skus.length &&
+        /^(sku|model|name|product)/i.test(skus[0])
+      ) {
+        skus.shift();
+      }
+
+      document.getElementById('sku-input').value =
+        skus.join('\n');
     }
   );
 
-  setupFileZone('contract-drop-zone', 'contract-file-input', 'contract-file-badge', 'contract-fname', 'contract-clear',
-    function (text, fname) {
-      if (!text) { document.getElementById('raw-input').value = ''; return; }
+  // ─────────────────────────────────────────────
+  // CONTRACT FILE
+  // ─────────────────────────────────────────────
+
+  setupFileZone(
+    'contract-drop-zone',
+    'contract-file-input',
+    'contract-file-badge',
+    'contract-fname',
+    'contract-clear',
+
+    function(text) {
+
+      if (!text) {
+
+        document.getElementById('raw-input').value = '';
+
+        return;
+      }
+
       document.getElementById('raw-input').value = text;
     }
   );
 
-  // ── Tab switching ──────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // TABS
+  // ─────────────────────────────────────────────
+
   function showTab(tabName) {
+
     activeTab = tabName;
-    document.getElementById('tab-submitted').style.display = tabName === 'submitted' ? '' : 'none';
-    document.getElementById('tab-recommended').style.display = tabName === 'recommended' ? '' : 'none';
+
+    document.getElementById('tab-submitted').style.display =
+      tabName === 'submitted' ? '' : 'none';
+
+    document.getElementById('tab-recommended').style.display =
+      tabName === 'recommended' ? '' : 'none';
+
     var tabs = document.querySelectorAll('.tab');
+
     for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
+
+      tabs[i].classList.toggle(
+        'active',
+        tabs[i].getAttribute('data-tab') === tabName
+      );
     }
   }
 
-  document.querySelectorAll('.tab').forEach(function (btn) {
-    btn.addEventListener('click', function () { showTab(btn.getAttribute('data-tab')); });
-  });
+  document.querySelectorAll('.tab')
+    .forEach(function(btn) {
 
-  // ── Run analysis ───────────────────────────────────────
-  function runAnalysis() {
-    var rawSkus = document.getElementById('sku-input').value.trim();
-    var rawData = document.getElementById('raw-input').value.trim();
-    var threshold = parseInt(document.getElementById('threshold').value, 10) || 5;
+      btn.addEventListener('click', function() {
 
-    if (!rawSkus) { alert('Please enter or upload at least one merchant SKU.'); return; }
-    if (!rawData) { alert('Please provide or upload raw contract data.'); return; }
-
-    var seen = {};
-    var merchantSkus = rawSkus.split('\n').map(function (s) { return s.trim(); }).filter(function (s) {
-      if (!s || seen[s.toLowerCase()]) return false;
-      seen[s.toLowerCase()] = true;
-      return true;
+        showTab(
+          btn.getAttribute('data-tab')
+        );
+      });
     });
 
-    var contractData = parseContracts(rawData);
-    if (!contractData.length) { alert('Could not parse contract data. Check format.'); return; }
+  // ─────────────────────────────────────────────
+  // RUN ANALYSIS
+  // ─────────────────────────────────────────────
 
-    var submittedRows = merchantSkus.map(function (sku) {
+  function runAnalysis() {
+
+    var rawSkus =
+      document.getElementById('sku-input')
+      .value
+      .trim();
+
+    var rawData =
+      document.getElementById('raw-input')
+      .value
+      .trim();
+
+    var threshold =
+      parseInt(
+        document.getElementById('threshold').value,
+        10
+      ) || 5;
+
+    if (!rawSkus) {
+      alert('Please enter or upload at least one merchant SKU.');
+      return;
+    }
+
+    if (!rawData) {
+      alert('Please provide or upload raw contract data.');
+      return;
+    }
+
+    var seen = {};
+
+    var merchantSkus = rawSkus
+      .split('\n')
+      .map(function(s) {
+        return s.trim();
+      })
+      .filter(function(s) {
+
+        if (!s || seen[s.toLowerCase()]) {
+          return false;
+        }
+
+        seen[s.toLowerCase()] = true;
+
+        return true;
+      });
+
+    var contractData = parseContracts(rawData);
+
+    if (!contractData.length) {
+
+      alert(
+        'Could not parse contract data. Check your columns.'
+      );
+
+      return;
+    }
+
+    var submittedRows = merchantSkus.map(function(sku) {
+
       var st = tok(sku);
-      var matches = contractData.filter(function (d) { return matchesWith(st, tok(d.name)); });
-      var total = matches.reduce(function (s, d) { return s + d.contracts; }, 0);
+
+      var matches = contractData.filter(function(d) {
+
+        return matchesWith(
+          st,
+          tok(d.name)
+        );
+      });
+
+      var total = matches.reduce(function(sum, d) {
+
+        return sum + d.contracts;
+
+      }, 0);
+
       var worth = total >= threshold;
+
       var note;
-      if (!matches.length) note = 'No match in data';
-      else if (matches.length === 1 && tok(matches[0].name).join(' ') === st.join(' ')) note = 'Exact match';
-      else if (matches.length === 1) note = 'Partial match';
-      else note = 'Aggregated ' + matches.length + ' variants';
-      return { sku: sku, total: total, worth: worth, note: note, matches: matches };
+
+      if (!matches.length) {
+
+        note = 'No match in data';
+
+      } else if (
+        matches.length === 1 &&
+        tok(matches[0].name).join(' ') === st.join(' ')
+      ) {
+
+        note = 'Exact match';
+
+      } else if (matches.length === 1) {
+
+        note = 'Partial match';
+
+      } else {
+
+        note = 'Aggregated ' + matches.length + ' variants';
+      }
+
+      return {
+        sku: sku,
+        total: total,
+        worth: worth,
+        note: note,
+        matches: matches
+      };
     });
 
     var coveredNames = {};
-    submittedRows.forEach(function (r) {
-      r.matches.forEach(function (m) { coveredNames[m.name.toLowerCase()] = true; });
+
+    submittedRows.forEach(function(r) {
+
+      r.matches.forEach(function(m) {
+
+        coveredNames[m.name.toLowerCase()] = true;
+      });
     });
 
     var recRows = contractData
-      .filter(function (d) { return !coveredNames[d.name.toLowerCase()] && d.contracts >= threshold; })
-      .sort(function (a, b) { return b.contracts - a.contracts; })
+      .filter(function(d) {
+
+        return (
+          !coveredNames[d.name.toLowerCase()] &&
+          d.contracts >= threshold
+        );
+      })
+      .sort(function(a, b) {
+
+        return b.contracts - a.contracts;
+
+      })
       .slice(0, 50);
 
-    analysisData = { submitted: submittedRows, recommended: recRows, threshold: threshold };
+    analysisData = {
+      submitted: submittedRows,
+      recommended: recRows,
+      threshold: threshold
+    };
 
     // Stats
-    var worthCount = submittedRows.filter(function (r) { return r.worth; }).length;
-    var notWorthCount = submittedRows.filter(function (r) { return !r.worth; }).length;
+
+    var worthCount = submittedRows.filter(function(r) {
+      return r.worth;
+    }).length;
+
+    var notWorthCount = submittedRows.filter(function(r) {
+      return !r.worth;
+    }).length;
+
     document.getElementById('stats-grid').innerHTML =
-      '<div class="stat"><div class="stat-val">' + merchantSkus.length + '</div><div class="stat-lbl">Submitted SKUs</div></div>' +
-      '<div class="stat"><div class="stat-val" style="color:#3B6D11">' + worthCount + '</div><div class="stat-lbl">Worth uploading</div></div>' +
-      '<div class="stat"><div class="stat-val" style="color:#A32D2D">' + notWorthCount + '</div><div class="stat-lbl">Not worth uploading</div></div>' +
-      '<div class="stat"><div class="stat-val" style="color:#185FA5">' + recRows.length + '</div><div class="stat-lbl">Recommended additions</div></div>';
+
+      '<div class="stat">' +
+      '<div class="stat-val">' + merchantSkus.length + '</div>' +
+      '<div class="stat-lbl">Submitted SKUs</div>' +
+      '</div>' +
+
+      '<div class="stat">' +
+      '<div class="stat-val" style="color:#3B6D11">' + worthCount + '</div>' +
+      '<div class="stat-lbl">Worth uploading</div>' +
+      '</div>' +
+
+      '<div class="stat">' +
+      '<div class="stat-val" style="color:#A32D2D">' + notWorthCount + '</div>' +
+      '<div class="stat-lbl">Not worth uploading</div>' +
+      '</div>' +
+
+      '<div class="stat">' +
+      '<div class="stat-val" style="color:#185FA5">' + recRows.length + '</div>' +
+      '<div class="stat-lbl">Recommended additions</div>' +
+      '</div>';
 
     // Submitted table
+
     var submittedHTML = '';
+
     for (var i = 0; i < submittedRows.length; i++) {
+
       var r = submittedRows[i];
+
       var variantList = '';
+
       if (r.matches.length > 1) {
-        variantList = '<div class="variants-list">' + r.matches.map(function (m) {
-          return m.name + ' (' + Math.round(m.contracts) + ')';
-        }).join(' · ') + '</div>';
-      } else if (r.matches.length === 1 && r.note !== 'Exact match') {
-        variantList = '<div class="variants-list">' + r.matches[0].name + '</div>';
+
+        variantList =
+          '<div class="variants-list">' +
+
+          r.matches.map(function(m) {
+
+            return (
+              m.name +
+              ' (' +
+              Math.round(m.contracts) +
+              ')'
+            );
+
+          }).join(' · ') +
+
+          '</div>';
+
+      } else if (
+        r.matches.length === 1 &&
+        r.note !== 'Exact match'
+      ) {
+
+        variantList =
+          '<div class="variants-list">' +
+          r.matches[0].name +
+          '</div>';
       }
-      var badgeClass = r.worth ? 'badge-yes' : (r.matches.length ? 'badge-no' : 'badge-nodata');
-      var badgeLabel = r.worth ? 'Worth uploading' : (r.matches.length ? 'Not worth it' : 'No data');
+
+      var badgeClass =
+        r.worth
+          ? 'badge-yes'
+          : (
+              r.matches.length
+                ? 'badge-no'
+                : 'badge-nodata'
+            );
+
+      var badgeLabel =
+        r.worth
+          ? 'Worth uploading'
+          : (
+              r.matches.length
+                ? 'Not worth it'
+                : 'No data'
+            );
+
       submittedHTML +=
         '<tr>' +
-        '<td style="font-weight:500">' + r.sku + '</td>' +
-        '<td>' + Math.round(r.total) + '</td>' +
-        '<td><span class="badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
-        '<td style="color:#666">' + r.note + variantList + '</td>' +
+
+        '<td style="font-weight:500">' +
+        r.sku +
+        '</td>' +
+
+        '<td>' +
+        Math.round(r.total) +
+        '</td>' +
+
+        '<td>' +
+        '<span class="badge ' + badgeClass + '">' +
+        badgeLabel +
+        '</span>' +
+        '</td>' +
+
+        '<td style="color:#666">' +
+        r.note +
+        variantList +
+        '</td>' +
+
         '</tr>';
     }
-    document.getElementById('submitted-body').innerHTML = submittedHTML;
+
+    document.getElementById('submitted-body').innerHTML =
+      submittedHTML;
 
     // Recommended table
+
     var recHTML = '';
+
     if (recRows.length) {
+
       for (var j = 0; j < recRows.length; j++) {
+
         recHTML +=
+
           '<tr>' +
-          '<td style="font-weight:500">' + recRows[j].name + '</td>' +
-          '<td>' + Math.round(recRows[j].contracts) + '</td>' +
-          '<td><span class="badge badge-rec">Recommend upload</span></td>' +
+
+          '<td style="font-weight:500">' +
+          recRows[j].name +
+          '</td>' +
+
+          '<td>' +
+          Math.round(recRows[j].contracts) +
+          '</td>' +
+
+          '<td>' +
+          '<span class="badge badge-rec">' +
+          'Recommend upload' +
+          '</span>' +
+          '</td>' +
+
           '</tr>';
       }
+
     } else {
-      recHTML = '<tr><td colspan="3" style="color:#aaa;padding:1.5rem 10px">No additional SKUs found above threshold.</td></tr>';
+
+      recHTML =
+        '<tr>' +
+        '<td colspan="3" style="color:#aaa;padding:1.5rem 10px">' +
+        'No additional SKUs found above threshold.' +
+        '</td>' +
+        '</tr>';
     }
-    document.getElementById('rec-body').innerHTML = recHTML;
+
+    document.getElementById('rec-body').innerHTML =
+      recHTML;
 
     document.getElementById('results').style.display = '';
+
     document.getElementById('results-divider').style.display = '';
+
     showTab('submitted');
   }
 
-  document.getElementById('run-btn').addEventListener('click', runAnalysis);
+  document.getElementById('run-btn')
+    .addEventListener('click', runAnalysis);
 
-  // ── Export ─────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // EXPORTS
+  // ─────────────────────────────────────────────
+
   function escCsv(val) {
+
     var s = String(val);
-    if (s.indexOf(',') > -1 || s.indexOf('"') > -1 || s.indexOf('\n') > -1) {
-      return '"' + s.replace(/"/g, '""') + '"';
+
+    if (
+      s.indexOf(',') > -1 ||
+      s.indexOf('"') > -1 ||
+      s.indexOf('\n') > -1
+    ) {
+
+      return '"' +
+        s.replace(/"/g, '""') +
+        '"';
     }
+
     return s;
   }
 
   function rowToCsv(arr) {
+
     return arr.map(escCsv).join(',');
   }
 
   function downloadCsv(filename, rows) {
+
     var csv = rows.map(rowToCsv).join('\n');
-    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+    var blob = new Blob(
+      [csv],
+      {
+        type: 'text/csv;charset=utf-8;'
+      }
+    );
+
     var url = URL.createObjectURL(blob);
+
     var a = document.createElement('a');
+
     a.href = url;
+
     a.download = filename;
+
     document.body.appendChild(a);
+
     a.click();
+
     document.body.removeChild(a);
+
     URL.revokeObjectURL(url);
   }
 
   function exportCurrentTab() {
+
     if (!analysisData.submitted.length) return;
+
     if (activeTab === 'submitted') {
-      var rows = [['Submitted SKU', 'Total Contracts', 'Status', 'Note', 'Matched Variants']];
-      analysisData.submitted.forEach(function (r) {
-        var status = r.worth ? 'Worth uploading' : (r.matches.length ? 'Not worth it' : 'No data');
-        var variants = r.matches.map(function (m) { return m.name + ' (' + Math.round(m.contracts) + ')'; }).join('; ');
-        rows.push([r.sku, Math.round(r.total), status, r.note, variants]);
+
+      var rows = [[
+        'Submitted SKU',
+        'Total Contracts',
+        'Status',
+        'Note',
+        'Matched Variants'
+      ]];
+
+      analysisData.submitted.forEach(function(r) {
+
+        var status =
+          r.worth
+            ? 'Worth uploading'
+            : (
+                r.matches.length
+                  ? 'Not worth it'
+                  : 'No data'
+              );
+
+        var variants = r.matches
+          .map(function(m) {
+
+            return (
+              m.name +
+              ' (' +
+              Math.round(m.contracts) +
+              ')'
+            );
+
+          })
+          .join('; ');
+
+        rows.push([
+          r.sku,
+          Math.round(r.total),
+          status,
+          r.note,
+          variants
+        ]);
       });
-      downloadCsv('submitted_skus_analysis.csv', rows);
+
+      downloadCsv(
+        'submitted_skus_analysis.csv',
+        rows
+      );
+
     } else {
-      var rows2 = [['SKU', 'Contracts', 'Recommendation']];
-      analysisData.recommended.forEach(function (r) {
-        rows2.push([r.name, Math.round(r.contracts), 'Recommend upload']);
+
+      var rows2 = [[
+        'SKU',
+        'Contracts',
+        'Recommendation'
+      ]];
+
+      analysisData.recommended.forEach(function(r) {
+
+        rows2.push([
+          r.name,
+          Math.round(r.contracts),
+          'Recommend upload'
+        ]);
       });
-      downloadCsv('recommended_skus.csv', rows2);
+
+      downloadCsv(
+        'recommended_skus.csv',
+        rows2
+      );
     }
   }
 
   function exportFullReport() {
+
     if (!analysisData.submitted.length) return;
-    var rows = [['Section', 'SKU', 'Total Contracts', 'Status', 'Note', 'Matched Variants']];
-    analysisData.submitted.forEach(function (r) {
-      var status = r.worth ? 'Worth uploading' : (r.matches.length ? 'Not worth it' : 'No data');
-      var variants = r.matches.map(function (m) { return m.name + ' (' + Math.round(m.contracts) + ')'; }).join('; ');
-      rows.push(['Submitted', r.sku, Math.round(r.total), status, r.note, variants]);
+
+    var rows = [[
+      'Section',
+      'SKU',
+      'Total Contracts',
+      'Status',
+      'Note',
+      'Matched Variants'
+    ]];
+
+    analysisData.submitted.forEach(function(r) {
+
+      var status =
+        r.worth
+          ? 'Worth uploading'
+          : (
+              r.matches.length
+                ? 'Not worth it'
+                : 'No data'
+            );
+
+      var variants = r.matches
+        .map(function(m) {
+
+          return (
+            m.name +
+            ' (' +
+            Math.round(m.contracts) +
+            ')'
+          );
+
+        })
+        .join('; ');
+
+      rows.push([
+        'Submitted',
+        r.sku,
+        Math.round(r.total),
+        status,
+        r.note,
+        variants
+      ]);
     });
-    rows.push(['', '', '', '', '', '']);
-    analysisData.recommended.forEach(function (r) {
-      rows.push(['Recommended', r.name, Math.round(r.contracts), 'Recommend upload', '', '']);
+
+    rows.push([
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ]);
+
+    analysisData.recommended.forEach(function(r) {
+
+      rows.push([
+        'Recommended',
+        r.name,
+        Math.round(r.contracts),
+        'Recommend upload',
+        '',
+        ''
+      ]);
     });
-    downloadCsv('sku_analysis_full_report.csv', rows);
+
+    downloadCsv(
+      'sku_analysis_full_report.csv',
+      rows
+    );
   }
 
-  document.getElementById('export-current-btn').addEventListener('click', exportCurrentTab);
-  document.getElementById('export-all-btn').addEventListener('click', exportFullReport);
+  document.getElementById('export-current-btn')
+    .addEventListener('click', exportCurrentTab);
+
+  document.getElementById('export-all-btn')
+    .addEventListener('click', exportFullReport);
 
 })();
 </script>
+```
+
 </body>
 </html>
