@@ -302,7 +302,7 @@
         </div>
         <div class="tbl-wrap">
           <table><thead><tr>
-            <th>Merchant SKU</th><th>Contracts</th><th>Status</th><th>Match note</th>
+            <th>Merchant SKU</th><th>Contracts</th><th>Status</th><th>Match note</th><th>Internal SKU</th>
           </tr></thead><tbody id="submitted-body"></tbody></table>
         </div>
       </div>
@@ -616,49 +616,39 @@ function textToContracts(text) {
 
 function rowsToCatalog(rows) {
   if (!rows || !rows.length) return [];
-  var skuCol = -1, labelCol = -1, headerRowIdx = -1;
+  // Find header row; default to col E (index 4) for "Internal SKU ID"
+  var skuCol = 4;
+  var headerRowIdx = 0;
   for (var r = 0; r < Math.min(rows.length, 5); r++) {
     var cells = rows[r].map(function(c){ return String(c||'').toLowerCase().trim(); });
-    cells.forEach(function(h, i){
-      if (h === 'internal sku id' || h === 'internal_sku_id' || h === 'internal sku') { skuCol = i; headerRowIdx = r; }
-      if (h === 'product name' || h === 'product_name') labelCol = i;
-    });
-    if (skuCol > -1) break;
+    for (var i = 0; i < cells.length; i++) {
+      if (cells[i] === 'internal sku id' || cells[i] === 'internal_sku_id' || cells[i] === 'internal sku') {
+        skuCol = i;
+        headerRowIdx = r;
+        break;
+      }
+    }
   }
-  if (skuCol === -1) {
-    var first = rows[0].map(function(c){ return String(c||'').toLowerCase(); });
-    headerRowIdx = /internal|sku|id|label|name/i.test(first.join(' ')) ? 0 : -1;
-    first.forEach(function(h, i){
-      if (skuCol === -1 && /internal.*sku|sku.*id/i.test(h)) skuCol = i;
-      else if (skuCol === -1 && /\bsku\b|\bid\b|code/i.test(h)) skuCol = i;
-      if (labelCol === -1 && /product.name|label|name|desc/i.test(h)) labelCol = i;
-    });
-    if (skuCol === -1) skuCol = 0;
-  }
-  if (labelCol === -1) labelCol = skuCol;
   var seen = {}, out = [];
   for (var i = headerRowIdx + 1; i < rows.length; i++) {
     var row = rows[i]; if (!row) continue;
     var sku = String(row[skuCol]||'').trim();
-    var lbl = String(row[labelCol]||row[skuCol]||'').trim();
     if (!sku || seen[sku]) continue;
     seen[sku] = true;
-    out.push({ internal_sku: sku, label: lbl || sku });
+    out.push(sku);
   }
   return out;
 }
 
 function textToCatalog(text) {
   var lines = text.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
-  var startIdx = (lines.length && /internal|sku|id|label/i.test(lines[0])) ? 1 : 0;
+  var startIdx = (lines.length && /internal|sku|id/i.test(lines[0])) ? 1 : 0;
   var seen = {}, out = [];
   for (var i = startIdx; i < lines.length; i++) {
-    var parts = lines[i].split(/,|\t/);
-    var sku = (parts[0]||'').trim().replace(/^["']|["']$/g,'');
-    var lbl = (parts[1]||parts[0]||'').trim().replace(/^["']|["']$/g,'');
+    var sku = lines[i].split(/,|\t/)[0].trim().replace(/^["']|["']$/g,'');
     if (!sku || seen[sku]) continue;
     seen[sku] = true;
-    out.push({ internal_sku: sku, label: lbl || sku });
+    out.push(sku);
   }
   return out;
 }
@@ -900,6 +890,28 @@ function runContracts() {
   }
   if (!S.contractData || !S.contractData.length) { alert('Please provide or upload contract data.'); return; }
 
+  // Parse catalog if uploaded via textarea (file upload handled in wireSlot)
+  var taCatalog = document.getElementById('ta-catalog');
+  if (taCatalog && !(slotData.catalog && slotData.catalog.rows)) {
+    S.catalogData = textToCatalog(taCatalog.value || '');
+  }
+
+  // Build a simple normalized lookup set from catalog SKU IDs
+  var catalogSet = {};
+  S.catalogData.forEach(function(sku) {
+    catalogSet[String(sku).toLowerCase().trim()] = sku;
+  });
+
+  // Simple lookup: normalize merchant SKU and check if it exists in catalog
+  function findInCatalog(merchantSku) {
+    var key = String(merchantSku).toLowerCase().trim();
+    if (catalogSet[key]) return catalogSet[key];
+    // Also try stripping common prefixes (e.g. "Vivo ")
+    var stripped = key.replace(/^vivo\s+/i, '').trim();
+    if (catalogSet[stripped]) return catalogSet[stripped];
+    return null;
+  }
+
   var contractData = S.contractData;
   var thresholdEl = document.getElementById('threshold');
   var threshold = thresholdEl ? (parseInt(thresholdEl.value, 10) || 5) : 5;
@@ -928,7 +940,7 @@ function runContracts() {
     return d.contracts >= threshold && !covered[d.name.toLowerCase()];
   }).slice(0, 60);
 
-  S.analysis = { submitted: submittedRows, recRows: recRows, threshold: threshold };
+  S.analysis = { submitted: submittedRows, recRows: recRows, threshold: threshold, catalogSet: catalogSet };
 
   document.getElementById('stats-grid').innerHTML =
     statEl(merchantSkus.length, 'Submitted', '') +
@@ -944,11 +956,16 @@ function runContracts() {
       varList = '<div class="sub-text">' + esc(r.matches[0].name) + '</div>';
     var bc = r.worth ? 'b-green' : (r.matches.length ? 'b-red' : 'b-gray');
     var bl = r.worth ? 'Worth it' : (r.matches.length ? 'Not worth' : 'No data');
+    var internalSku = findInCatalog(r.sku);
+    var catCell = S.catalogData.length
+      ? (internalSku ? '<span class="mono" style="font-size:12px">' + esc(internalSku) + '</span>' : '<span class="badge b-gray">No match</span>')
+      : '<span style="color:var(--text-faint);font-size:11px">—</span>';
     return '<tr>' +
       '<td class="mono" style="font-weight:500">' + esc(r.sku) + '</td>' +
       '<td class="mono">' + Math.round(r.total).toLocaleString() + '</td>' +
       '<td><span class="badge ' + bc + '">' + bl + '</span></td>' +
       '<td style="color:var(--text-muted)">' + esc(r.note) + varList + '</td>' +
+      '<td>' + catCell + '</td>' +
       '</tr>';
   }).join('');
   document.getElementById('submitted-body').innerHTML = html;
@@ -1078,10 +1095,12 @@ function dlCsv(name, rows){ var blob=new Blob([rows.map(function(r){return r.map
 
 document.getElementById('export-analysis-btn').addEventListener('click', function(){
   if (!S.analysis) return;
-  var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants']];
+  var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants','Internal SKU']];
   S.analysis.submitted.forEach(function(r){
+    var internalSku = S.analysis.catalogSet ? (S.analysis.catalogSet[r.sku.toLowerCase().trim()] || '') : '';
     rows.push([r.sku, Math.round(r.total), r.worth?'Worth':'Not worth', r.note,
-      r.matches.map(function(m){ return m.name+'('+Math.round(m.contracts)+')'; }).join('; ')
+      r.matches.map(function(m){ return m.name+'('+Math.round(m.contracts)+')'; }).join('; '),
+      internalSku
     ]);
   });
   dlCsv('analysis.csv', rows);
