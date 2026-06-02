@@ -285,6 +285,7 @@
     <div class="tabs-bar">
       <button class="tab-btn active" data-tab="c-analysis">Analysis <span class="tc" id="tc-analysis">—</span></button>
       <button class="tab-btn" data-tab="c-explorer">Contract Explorer</button>
+      <button class="tab-btn" data-tab="c-recs">Recommendations <span class="tc" id="tc-recs">—</span></button>
     </div>
 
     <!-- Analysis tab -->
@@ -319,6 +320,21 @@
         <div class="tbl-wrap">
           <table><thead><tr><th>Model</th><th>Contracts</th></tr></thead>
           <tbody id="c-explorer-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recs tab -->
+    <div class="tab-panel" id="tab-c-recs">
+      <div class="empty" id="recs-empty"><div class="e-icon">📦</div>Run Analysis to see recommended additions.</div>
+      <div id="recs-content" style="display:none">
+        <div class="section-hdr">
+          <h2>Recommended additions</h2>
+          <button class="btn-sm" id="export-recs-btn">↓ Export</button>
+        </div>
+        <div class="tbl-wrap">
+          <table><thead><tr><th>SKU</th><th>Contracts</th><th></th></tr></thead>
+          <tbody id="rec-body"></tbody></table>
         </div>
       </div>
     </div>
@@ -918,14 +934,24 @@ function runContracts() {
     return { sku: sku, total: total, worth: worth, note: note, matches: matches };
   });
 
-  S.analysis = { submitted: submittedRows, threshold: threshold };
-
   var worthCount = submittedRows.filter(function(r){ return r.worth; }).length;
   var notWorthCount = submittedRows.length - worthCount;
+
+  var covered = {};
+  submittedRows.forEach(function(r){
+    r.matches.forEach(function(m){ covered[m.name.toLowerCase()] = true; });
+  });
+  var recRows = contractData.filter(function(d){
+    return d.contracts >= threshold && !covered[d.name.toLowerCase()];
+  }).slice(0, 60);
+
+  S.analysis = { submitted: submittedRows, recRows: recRows, threshold: threshold };
+
   document.getElementById('stats-grid').innerHTML =
     statEl(merchantSkus.length, 'Submitted', '') +
     statEl(worthCount, 'Worth uploading', 'sv-green') +
-    statEl(notWorthCount, 'Not worth', 'sv-red');
+    statEl(notWorthCount, 'Not worth', 'sv-red') +
+    statEl(recRows.length, 'Recommended', 'sv-blue');
 
   var html = submittedRows.map(function(r){
     var varList = '';
@@ -962,6 +988,22 @@ function runContracts() {
   document.getElementById('analysis-content').style.display = '';
 
   document.getElementById('tc-analysis').textContent = worthCount + '/' + submittedRows.length;
+
+  // Recs tab — no internal SKU matching
+  var recHtml = recRows.length
+    ? recRows.map(function(r){
+        return '<tr>' +
+          '<td class="mono">' + esc(r.name) + '</td>' +
+          '<td class="mono">' + Math.round(r.contracts).toLocaleString() + '</td>' +
+          '<td><span class="badge b-blue">Add</span></td>' +
+          '</tr>';
+      }).join('')
+    : '<tr><td colspan="3" style="color:var(--text-faint);padding:1.5rem">None above threshold.</td></tr>';
+  document.getElementById('rec-body').innerHTML = recHtml;
+  document.getElementById('recs-empty').style.display = 'none';
+  document.getElementById('recs-content').style.display = '';
+  document.getElementById('tc-recs').textContent = recRows.length;
+
   refreshContractExplorer();
   } catch(e) {
     console.error('runContracts error:', e);
@@ -1078,6 +1120,14 @@ document.getElementById('export-analysis-btn').addEventListener('click', functio
     ]);
   });
   dlCsv('analysis.csv', rows);
+});
+document.getElementById('export-recs-btn').addEventListener('click', function(){
+  if (!S.analysis || !S.analysis.recRows) return;
+  var rows = [['SKU','Contracts']];
+  S.analysis.recRows.forEach(function(r){
+    rows.push([r.name, Math.round(r.contracts)]);
+  });
+  dlCsv('recommendations.csv', rows);
 });
 document.getElementById('export-mapper-btn').addEventListener('click', function(){
   if (!S.mapping.length) return;
