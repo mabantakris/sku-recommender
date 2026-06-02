@@ -285,7 +285,6 @@
     <div class="tabs-bar">
       <button class="tab-btn active" data-tab="c-analysis">Analysis <span class="tc" id="tc-analysis">—</span></button>
       <button class="tab-btn" data-tab="c-explorer">Contract Explorer</button>
-      <button class="tab-btn" data-tab="c-recs">Recommendations <span class="tc" id="tc-recs">—</span></button>
     </div>
 
     <!-- Analysis tab -->
@@ -298,7 +297,6 @@
           <h2>Submitted SKUs</h2>
           <div class="export-row">
             <button class="btn-sm" id="export-analysis-btn">↓ Export</button>
-            <button class="btn-sm g" id="export-all-btn">↓ Full Report</button>
           </div>
         </div>
         <div class="tbl-wrap">
@@ -325,21 +323,6 @@
       </div>
     </div>
 
-    <!-- Recs tab -->
-    <div class="tab-panel" id="tab-c-recs">
-      <div class="empty" id="recs-empty"><div class="e-icon">📦</div>Run Analysis to see recommended additions.</div>
-      <div id="recs-content" style="display:none">
-
-        <div class="section-hdr">
-          <h2>Recommended additions</h2>
-          <button class="btn-sm" id="export-recs-btn">↓ Export</button>
-        </div>
-        <div class="tbl-wrap">
-          <table><thead><tr><th>SKU</th><th>Contracts</th><th>Internal SKU</th><th></th></tr></thead>
-          <tbody id="rec-body"></tbody></table>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Mapper mode -->
@@ -935,27 +918,14 @@ function runContracts() {
     return { sku: sku, total: total, worth: worth, note: note, matches: matches };
   });
 
-  var covered = {};
-  submittedRows.forEach(function(r){
-    r.matches.forEach(function(m){
-      covered[m.name.toLowerCase()] = true;
-    });
-  });
-
-  var recRows = contractData.filter(function(d){
-    if (d.contracts < threshold) return false;
-    return !covered[d.name.toLowerCase()];
-  }).slice(0, 60);
-
-  S.analysis = { submitted: submittedRows, recommended: recRows, threshold: threshold };
+  S.analysis = { submitted: submittedRows, threshold: threshold };
 
   var worthCount = submittedRows.filter(function(r){ return r.worth; }).length;
   var notWorthCount = submittedRows.length - worthCount;
   document.getElementById('stats-grid').innerHTML =
     statEl(merchantSkus.length, 'Submitted', '') +
     statEl(worthCount, 'Worth uploading', 'sv-green') +
-    statEl(notWorthCount, 'Not worth', 'sv-red') +
-    statEl(recRows.length, 'Recommended', 'sv-blue');
+    statEl(notWorthCount, 'Not worth', 'sv-red');
 
   var html = submittedRows.map(function(r){
     var varList = '';
@@ -991,36 +961,7 @@ function runContracts() {
   document.getElementById('analysis-empty').style.display = 'none';
   document.getElementById('analysis-content').style.display = '';
 
-  // Recs tab
-  var recHtml = recRows.length
-    ? recRows.map(function(r){
-        var catMatch = bestCatalogMatch(r.name);
-        var catCell = '';
-        if (!S.catalogData.length) {
-          catCell = '<span style="color:var(--text-faint);font-size:11px">No catalog</span>';
-        } else if (catMatch) {
-          var pct = Math.round(catMatch.score * 100);
-          var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
-          catCell = '<span class="mono" style="font-size:12px">' + esc(catMatch.internal_sku) + '</span>' +
-            (catMatch.label !== catMatch.internal_sku ? '<div class="sub-text">' + esc(catMatch.label) + '</div>' : '') +
-            ' <span class="score-pill ' + sp + '">' + pct + '%</span>';
-        } else {
-          catCell = '<span class="badge b-gray">No match</span>';
-        }
-        return '<tr>' +
-          '<td class="mono">' + esc(r.name) + '</td>' +
-          '<td class="mono">' + Math.round(r.contracts).toLocaleString() + '</td>' +
-          '<td>' + catCell + '</td>' +
-          '<td><span class="badge b-blue">Add</span></td>' +
-          '</tr>';
-      }).join('')
-    : '<tr><td colspan="4" style="color:var(--text-faint);padding:1.5rem">None above threshold.</td></tr>';
-  document.getElementById('rec-body').innerHTML = recHtml;
-  document.getElementById('recs-empty').style.display = recRows.length ? 'none' : '';
-  document.getElementById('recs-content').style.display = recRows.length ? '' : 'none';
-
   document.getElementById('tc-analysis').textContent = worthCount + '/' + submittedRows.length;
-  document.getElementById('tc-recs').textContent = recRows.length;
   refreshContractExplorer();
   } catch(e) {
     console.error('runContracts error:', e);
@@ -1137,27 +1078,6 @@ document.getElementById('export-analysis-btn').addEventListener('click', functio
     ]);
   });
   dlCsv('analysis.csv', rows);
-});
-document.getElementById('export-all-btn').addEventListener('click', function(){
-  if (!S.analysis) return;
-  var rows = [['Section','SKU','Contracts','Status','Note']];
-  S.analysis.submitted.forEach(function(r){
-    rows.push(['Submitted', r.sku, Math.round(r.total), r.worth?'Worth':'Not worth', r.note]);
-  });
-  rows.push([]);
-  S.analysis.recommended.forEach(function(r){
-    rows.push(['Recommended', r.name, Math.round(r.contracts), 'Add','']);
-  });
-  dlCsv('full_report.csv', rows);
-});
-document.getElementById('export-recs-btn').addEventListener('click', function(){
-  if (!S.analysis) return;
-  var rows = [['SKU','Contracts','Internal SKU','Internal SKU Score %']];
-  S.analysis.recommended.forEach(function(r){
-    var catMatch = bestCatalogMatch(r.name);
-    rows.push([r.name, Math.round(r.contracts), catMatch ? catMatch.internal_sku : '', catMatch ? Math.round(catMatch.score*100) : '']);
-  });
-  dlCsv('recommendations.csv', rows);
 });
 document.getElementById('export-mapper-btn').addEventListener('click', function(){
   if (!S.mapping.length) return;
