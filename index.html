@@ -486,19 +486,52 @@ function catalogContains(contractName) {
   });
 }
 
-// Returns { internal_sku, label, score } or null if no catalog loaded / no good match
+// Cache: keyed by normalized name → { internal_sku, label, score } | null
+var catalogMatchCache = {};
+
+function invalidateCatalogCache() {
+  catalogMatchCache = {};
+}
+
+// Pre-compute matches for a list of names all at once (call after Run)
+function warmCatalogCache(names) {
+  if (!S.catalogData.length) return;
+  names.forEach(function(name) {
+    var key = name.toLowerCase();
+    if (key in catalogMatchCache) return;
+    var best = null, bestScore = 0;
+    S.catalogData.forEach(function(cat) {
+      var s = Math.max(
+        smartScore(name, cat.internal_sku),
+        smartScore(name, cat.label || cat.internal_sku)
+      );
+      if (s > bestScore) { bestScore = s; best = cat; }
+    });
+    catalogMatchCache[key] = (best && bestScore >= 0.3)
+      ? { internal_sku: best.internal_sku, label: best.label, score: bestScore }
+      : null;
+  });
+}
+
+// Returns cached result — O(1) after warm
 function bestCatalogMatch(name) {
   if (!S.catalogData.length) return null;
-  var best = null, bestScore = 0;
-  S.catalogData.forEach(function(cat) {
-    var s = Math.max(
-      smartScore(name, cat.internal_sku),
-      smartScore(name, cat.label || cat.internal_sku)
-    );
-    if (s > bestScore) { bestScore = s; best = cat; }
-  });
-  if (!best || bestScore < 0.3) return null;
-  return { internal_sku: best.internal_sku, label: best.label, score: bestScore };
+  var key = name.toLowerCase();
+  if (!(key in catalogMatchCache)) {
+    // Single miss: compute and store
+    var best = null, bestScore = 0;
+    S.catalogData.forEach(function(cat) {
+      var s = Math.max(
+        smartScore(name, cat.internal_sku),
+        smartScore(name, cat.label || cat.internal_sku)
+      );
+      if (s > bestScore) { bestScore = s; best = cat; }
+    });
+    catalogMatchCache[key] = (best && bestScore >= 0.3)
+      ? { internal_sku: best.internal_sku, label: best.label, score: bestScore }
+      : null;
+  }
+  return catalogMatchCache[key];
 }
 
 function matchesContract(skuTokens, contractTokens) {
@@ -693,6 +726,7 @@ function wireSlot(slotId) {
         refreshContractExplorer();
       } else if (slotId === 'catalog') {
         S.catalogData = result.rows ? rowsToCatalog(result.rows) : textToCatalog(result.text || '');
+        invalidateCatalogCache();
         refreshCatalogExplorer();
       } else if (slotId === 'sku' && result.rows) {
         ta.value = rowsToSkus(result.rows).join('\n');
@@ -707,7 +741,7 @@ function wireSlot(slotId) {
     fi.value = ''; slotData[slotId] = { rows: null, text: '' };
     if (ta) ta.value = '';
     if (slotId === 'contract') { S.contractData = []; refreshContractExplorer(); }
-    if (slotId === 'catalog') { S.catalogData = []; refreshCatalogExplorer(); }
+    if (slotId === 'catalog') { S.catalogData = []; invalidateCatalogCache(); refreshCatalogExplorer(); }
   });
   if (ta) {
     ta.addEventListener('input', function(){
@@ -716,6 +750,7 @@ function wireSlot(slotId) {
         refreshContractExplorer();
       } else if (slotId === 'catalog') {
         S.catalogData = textToCatalog(ta.value);
+        invalidateCatalogCache();
         refreshCatalogExplorer();
       }
     });
@@ -762,11 +797,12 @@ function renderContractExplorer(q) {
   var filtered = q.trim()
     ? cd.filter(function(d){ return d.name.toLowerCase().indexOf(q.toLowerCase()) > -1; })
     : cd;
+  var showing = filtered.slice(0, 200);
   document.getElementById('c-explorer-hint').textContent =
     q.trim()
-      ? filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + q + '"'
-      : filtered.length + ' total entries — type to filter';
-  var html = filtered.map(function(d){
+      ? filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + q + '"' + (filtered.length > 200 ? ' (showing first 200)' : '')
+      : filtered.length + ' total entries — type to filter' + (filtered.length > 200 ? ' (showing first 200)' : '');
+  var html = showing.map(function(d){
     var nameHtml = esc(d.name);
     if (q.trim()) {
       var idx = d.name.toLowerCase().indexOf(q.toLowerCase());
@@ -789,7 +825,12 @@ function renderContractExplorer(q) {
   document.getElementById('c-explorer-body').innerHTML = html || '<tr><td colspan="2" style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
 }
 
-document.getElementById('c-explorer-search').addEventListener('input', function(){ renderContractExplorer(this.value); });
+var explorerSearchTimer = null;
+document.getElementById('c-explorer-search').addEventListener('input', function(){
+  var val = this.value;
+  clearTimeout(explorerSearchTimer);
+  explorerSearchTimer = setTimeout(function(){ renderContractExplorer(val); }, 180);
+});
 document.getElementById('c-explorer-clear-btn').addEventListener('click', function(){
   document.getElementById('c-explorer-search').value = '';
   renderContractExplorer('');
@@ -827,7 +868,12 @@ function renderCatalogExplorer(q) {
   document.getElementById('m-explorer-body').innerHTML = html || '<tr><td colspan="2" style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
 }
 
-document.getElementById('m-explorer-search').addEventListener('input', function(){ renderCatalogExplorer(this.value); });
+var catalogSearchTimer = null;
+document.getElementById('m-explorer-search').addEventListener('input', function(){
+  var val = this.value;
+  clearTimeout(catalogSearchTimer);
+  catalogSearchTimer = setTimeout(function(){ renderCatalogExplorer(val); }, 180);
+});
 document.getElementById('m-explorer-clear-btn').addEventListener('click', function(){
   document.getElementById('m-explorer-search').value = '';
   renderCatalogExplorer('');
@@ -866,7 +912,18 @@ function runContracts() {
 
   // Re-parse catalog textarea if not loaded via file
   if (taCatalogC && slotData.catalog && !slotData.catalog.rows) {
-    S.catalogData = textToCatalog(taCatalogC.value);
+    var newCatalog = textToCatalog(taCatalogC.value);
+    if (newCatalog.length !== S.catalogData.length) {
+      S.catalogData = newCatalog;
+      invalidateCatalogCache();
+    }
+  }
+
+  // Pre-compute all catalog matches up front so rendering is O(1) per row
+  if (S.catalogData.length) {
+    var allNames = contractData.map(function(d){ return d.name; });
+    warmCatalogCache(allNames);
+    warmCatalogCache(merchantSkus);
   }
 
   // FIX: read recMode from the select element
