@@ -194,6 +194,18 @@
     .sp-low    { background: var(--orange-bg); color: var(--orange); }
     .sp-none   { background: var(--border-soft); color: var(--text-faint); }
 
+    /* Combined mapper table */
+    .mapper-section-divider td {
+      background: var(--bg) !important;
+      padding: 6px 12px;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      border-bottom: 1px solid var(--border);
+    }
+
     .export-row { display: flex; gap: 6px; flex-wrap: wrap; }
     .btn-sm {
       display: inline-flex; align-items: center; gap: 5px;
@@ -303,7 +315,7 @@
       </div>
     </div>
 
-    <!-- Explorer tab -->
+    <!-- Explorer tab — NO Internal SKU column -->
     <div class="tab-panel" id="tab-c-explorer">
       <div class="empty" id="c-explorer-empty"><div class="e-icon">🔍</div>Upload Contract Data first, then search.</div>
       <div id="c-explorer-content" style="display:none">
@@ -313,7 +325,7 @@
         </div>
         <div class="search-hint" id="c-explorer-hint"></div>
         <div class="tbl-wrap">
-          <table><thead><tr><th>Model</th><th>Contracts</th><th>Internal SKU</th></tr></thead>
+          <table><thead><tr><th>Model</th><th>Contracts</th></tr></thead>
           <tbody id="c-explorer-body"></tbody></table>
         </div>
       </div>
@@ -339,11 +351,12 @@
   <!-- Mapper mode -->
   <div id="view-mapper" style="display:none">
     <div class="tabs-bar">
+      <!-- Single combined tab replacing the old two tabs -->
       <button class="tab-btn active" data-tab="m-main">SKU Mapping <span class="tc" id="tc-mapper">—</span></button>
       <button class="tab-btn" data-tab="m-explorer">Catalog Explorer</button>
-      <button class="tab-btn" data-tab="m-unmatched">Unmatched <span class="tc" id="tc-unmatched">—</span></button>
     </div>
 
+    <!-- Combined SKU Mapping + Unmatched tab -->
     <div class="tab-panel active" id="tab-m-main">
       <div class="empty" id="mapper-empty"><div class="e-icon">🔗</div>Upload Merchant SKUs + Internal Catalog, then run.</div>
       <div id="mapper-content" style="display:none">
@@ -353,9 +366,12 @@
           <button class="btn-sm" id="export-mapper-btn">↓ Export</button>
         </div>
         <div class="tbl-wrap">
-          <table><thead><tr>
-            <th>Merchant SKU</th><th>Best Match</th><th>Score</th><th>Other candidates</th>
-          </tr></thead><tbody id="mapper-body"></tbody></table>
+          <table>
+            <thead><tr>
+              <th>Merchant SKU</th><th>Best Match</th><th>Score</th><th>Other candidates</th>
+            </tr></thead>
+            <tbody id="mapper-body"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -372,18 +388,6 @@
         <div class="tbl-wrap">
           <table><thead><tr><th>Internal SKU</th><th>Label</th></tr></thead>
           <tbody id="m-explorer-body"></tbody></table>
-        </div>
-      </div>
-    </div>
-
-    <div class="tab-panel" id="tab-m-unmatched">
-      <div class="empty" id="unmatched-empty"><div class="e-icon">✅</div>No unmatched SKUs.</div>
-      <div id="unmatched-content" style="display:none">
-        <div class="notice notice-warn">These merchant SKUs scored below 30% against all internal SKUs. Manual review recommended.</div>
-        <div class="tbl-wrap">
-          <table><thead><tr>
-            <th>Merchant SKU</th><th>Best Attempt</th><th>Score</th>
-          </tr></thead><tbody id="unmatched-body"></tbody></table>
         </div>
       </div>
     </div>
@@ -410,7 +414,7 @@ var SLOTS = {
   contracts: [
     { id: 'sku',      label: 'Merchant SKUs',   req: true,  accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
     { id: 'contract', label: 'Contract Data',    req: true,  accept: '.csv,.tsv,.txt,.xlsx', ph: 'model,contracts\nVivo V70 FE 8+256,409\nVivo V70 8+256,1199' },
-    { id: 'catalog',  label: 'Internal Catalog', req: false, accept: '.csv,.tsv,.txt,.xlsx', ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB\n\nUpload to enable Internal SKU matching in all tabs.' }
+    { id: 'catalog',  label: 'Internal Catalog', req: false, accept: '.csv,.tsv,.txt,.xlsx', ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB\n\nUpload to enable Internal SKU matching in Analysis and Recommendations tabs.' }
   ],
   mapper: [
     { id: 'sku',     label: 'Merchant SKUs',   req: true, accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
@@ -518,7 +522,6 @@ function bestCatalogMatch(name) {
   if (!S.catalogData.length) return null;
   var key = name.toLowerCase();
   if (!(key in catalogMatchCache)) {
-    // Single miss: compute and store
     var best = null, bestScore = 0;
     S.catalogData.forEach(function(cat) {
       var s = Math.max(
@@ -784,7 +787,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
   });
 });
 
-// ── Contract Explorer ──────────────────────────────────
+// ── Contract Explorer — no Internal SKU column ─────────
 function refreshContractExplorer() {
   var cd = S.contractData;
   document.getElementById('c-explorer-empty').style.display = cd.length ? 'none' : '';
@@ -808,19 +811,8 @@ function renderContractExplorer(q) {
       var idx = d.name.toLowerCase().indexOf(q.toLowerCase());
       if (idx > -1) nameHtml = esc(d.name.slice(0,idx)) + '<mark style="background:#fef9c3;border-radius:2px">' + esc(d.name.slice(idx,idx+q.length)) + '</mark>' + esc(d.name.slice(idx+q.length));
     }
-    // Internal SKU match column
-    var catMatch = bestCatalogMatch(d.name);
-    var catCell = '';
-    if (!S.catalogData.length) {
-      catCell = '<span style="color:var(--text-faint);font-size:11px">—</span>';
-    } else if (catMatch) {
-      var pct = Math.round(catMatch.score * 100);
-      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
-      catCell = '<span class="mono" style="font-size:11px">' + esc(catMatch.internal_sku) + '</span> <span class="score-pill ' + sp + '">' + pct + '%</span>';
-    } else {
-      catCell = '<span style="color:var(--text-faint);font-size:11px">No match</span>';
-    }
-    return '<tr><td class="mono">' + nameHtml + '</td><td class="mono">' + Math.round(d.contracts).toLocaleString() + '</td><td>' + catCell + '</td></tr>';
+    // Only model + contracts — no Internal SKU column
+    return '<tr><td class="mono">' + nameHtml + '</td><td class="mono">' + Math.round(d.contracts).toLocaleString() + '</td></tr>';
   }).join('');
   document.getElementById('c-explorer-body').innerHTML = html || '<tr><td colspan="2" style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
 }
@@ -919,17 +911,17 @@ function runContracts() {
     }
   }
 
-  // Pre-compute all catalog matches up front so rendering is O(1) per row
+  var contractData = S.contractData;
+
+  // Pre-compute all catalog matches up front — FIX: use contractData (declared above)
   if (S.catalogData.length) {
     var allNames = contractData.map(function(d){ return d.name; });
     warmCatalogCache(allNames);
     warmCatalogCache(merchantSkus);
   }
 
-  // FIX: read recMode from the select element
   var recMode = document.getElementById('rec-mode').value;
   var threshold = parseInt(document.getElementById('threshold').value, 10) || 5;
-  var contractData = S.contractData;
 
   var submittedRows = merchantSkus.map(function(sku){
     var st = tokContract(sku);
@@ -1016,7 +1008,7 @@ function runContracts() {
   document.getElementById('analysis-empty').style.display = 'none';
   document.getElementById('analysis-content').style.display = '';
 
-  // Recs
+  // Recs tab
   document.getElementById('recs-mode-note').textContent = modeNoteText;
   var recHtml = recRows.length
     ? recRows.map(function(r){
@@ -1048,8 +1040,6 @@ function runContracts() {
   document.getElementById('tc-analysis').textContent = worthCount + '/' + submittedRows.length;
   document.getElementById('tc-recs').textContent = recRows.length;
   refreshContractExplorer();
-  var isFirstRun = document.getElementById('analysis-empty').style.display !== 'none';
-  if (isFirstRun) switchTab('contracts', 'c-analysis');
 }
 
 function statEl(v, l, cls) {
@@ -1082,9 +1072,10 @@ function runMapper() {
 
   S.mapping = mapRows;
 
-  var matched = mapRows.filter(function(r){ return r.best.score >= UNMATCH_THRESHOLD; });
-  var unmatched = mapRows.filter(function(r){ return r.best.score < UNMATCH_THRESHOLD; });
+  var matched   = mapRows.filter(function(r){ return r.best.score >= UNMATCH_THRESHOLD; });
+  var unmatched = mapRows.filter(function(r){ return r.best.score <  UNMATCH_THRESHOLD; });
 
+  // ── Build combined table: matched rows first, then a divider, then unmatched ──
   var matchedHtml = matched.map(function(r){
     var best = r.best;
     var pct = Math.round(best.score * 100);
@@ -1099,42 +1090,39 @@ function runMapper() {
     }
     return '<tr>' +
       '<td class="mono" style="font-weight:500">' + esc(r.merchantSku) + '</td>' +
-      '<td><span class="mono" style="font-size:12px">' + esc(best.cat.internal_sku) + '</span>' + (best.cat.label !== best.cat.internal_sku ? '<div class="sub-text">' + esc(best.cat.label) + '</div>' : '') + '</td>' +
+      '<td><span class="mono" style="font-size:12px">' + esc(best.cat.internal_sku) + '</span>' +
+        (best.cat.label !== best.cat.internal_sku ? '<div class="sub-text">' + esc(best.cat.label) + '</div>' : '') + '</td>' +
       '<td><span class="score-pill ' + sp + '">' + pct + '%</span></td>' +
       '<td>' + othersHtml + '</td>' +
       '</tr>';
   }).join('');
 
-  document.getElementById('mapper-body').innerHTML = matchedHtml || '<tr><td colspan="4" style="color:var(--text-faint);padding:1.5rem">No matches above threshold.</td></tr>';
+  var unmatchedHtml = '';
+  if (unmatched.length) {
+    // Section divider row
+    unmatchedHtml = '<tr class="mapper-section-divider"><td colspan="4">⚠ Unmatched — below ' + Math.round(UNMATCH_THRESHOLD*100) + '% threshold · manual review recommended</td></tr>';
+    unmatchedHtml += unmatched.map(function(r){
+      var pct = Math.round(r.best.score * 100);
+      return '<tr>' +
+        '<td class="mono" style="font-weight:500;color:var(--red)">' + esc(r.merchantSku) + '</td>' +
+        '<td class="mono" style="color:var(--text-muted)">' + esc(r.best.cat.internal_sku) + '</td>' +
+        '<td><span class="score-pill sp-none">' + pct + '%</span></td>' +
+        '<td><span class="badge b-yellow">Review</span></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  var combinedHtml = matchedHtml + unmatchedHtml;
+  document.getElementById('mapper-body').innerHTML = combinedHtml ||
+    '<tr><td colspan="4" style="color:var(--text-faint);padding:1.5rem">No matches found.</td></tr>';
+
   document.getElementById('mapper-empty').style.display = 'none';
   document.getElementById('mapper-content').style.display = '';
   document.getElementById('mapper-notice').textContent =
     matched.length + ' matched · ' + unmatched.length + ' unmatched (below ' + Math.round(UNMATCH_THRESHOLD*100) + '% threshold)';
 
-  var unmatchedHtml = unmatched.map(function(r){
-    var pct = Math.round(r.best.score * 100);
-    return '<tr>' +
-      '<td class="mono" style="font-weight:500">' + esc(r.merchantSku) + '</td>' +
-      '<td class="mono" style="color:var(--text-muted)">' + esc(r.best.cat.internal_sku) + '</td>' +
-      '<td><span class="score-pill sp-none">' + pct + '%</span></td>' +
-      '</tr>';
-  }).join('');
-
-  if (unmatched.length) {
-    document.getElementById('unmatched-body').innerHTML = unmatchedHtml;
-    document.getElementById('unmatched-empty').style.display = 'none';
-    document.getElementById('unmatched-content').style.display = '';
-  } else {
-    document.getElementById('unmatched-empty').style.display = '';
-    document.getElementById('unmatched-content').style.display = 'none';
-  }
-
-  document.getElementById('tc-mapper').textContent = matched.length;
-  document.getElementById('tc-unmatched').textContent = unmatched.length || '0';
+  document.getElementById('tc-mapper').textContent = matched.length + (unmatched.length ? '+' + unmatched.length : '');
   refreshCatalogExplorer();
-  // Only auto-navigate to results on first run (when empty state is still showing)
-  var isFirstRun = document.getElementById('mapper-empty').style.display !== 'none';
-  if (isFirstRun) switchTab('mapper', 'm-main');
 }
 
 // ── Tab helpers ────────────────────────────────────────
