@@ -410,7 +410,7 @@ var SLOTS = {
   contracts: [
     { id: 'sku',      label: 'Merchant SKUs',   req: true,  accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
     { id: 'contract', label: 'Contract Data',    req: true,  accept: '.csv,.tsv,.txt,.xlsx', ph: 'model,contracts\nVivo V70 FE 8+256,409\nVivo V70 8+256,1199' },
-    { id: 'catalog',  label: 'Internal Catalog', req: false, accept: '.csv,.tsv,.txt,.xlsx', ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB' }
+    { id: 'catalog',  label: 'Internal Catalog', req: false, accept: '.csv,.tsv,.txt,.xlsx', ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB\n\nUpload to enable Internal SKU matching in all tabs.' }
   ],
   mapper: [
     { id: 'sku',     label: 'Merchant SKUs',   req: true, accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
@@ -856,12 +856,18 @@ function getMerchantSkus() {
 function runContracts() {
   var merchantSkus = getMerchantSkus();
   var taContract = document.getElementById('ta-contract');
+  var taCatalogC = document.getElementById('ta-catalog');
   if (!merchantSkus.length) { alert('Please enter or upload at least one merchant SKU.'); return; }
 
   if (taContract && slotData.contract && !slotData.contract.rows) {
     S.contractData = textToContracts(taContract.value);
   }
   if (!S.contractData.length) { alert('Please provide or upload contract data.'); return; }
+
+  // Re-parse catalog textarea if not loaded via file
+  if (taCatalogC && slotData.catalog && !slotData.catalog.rows) {
+    S.catalogData = textToCatalog(taCatalogC.value);
+  }
 
   // FIX: read recMode from the select element
   var recMode = document.getElementById('rec-mode').value;
@@ -911,9 +917,12 @@ function runContracts() {
     statEl(notWorthCount, 'Not worth', 'sv-red') +
     statEl(recRows.length, 'Recommended', 'sv-blue');
 
-  // Show mode note
+  // Show mode note + catalog status
   var analysisModeNote = document.getElementById('analysis-mode-note');
-  analysisModeNote.textContent = modeNoteText;
+  var catalogStatus = S.catalogData.length
+    ? ' · Internal Catalog loaded (' + S.catalogData.length + ' SKUs) — matching active.'
+    : ' · No Internal Catalog loaded — upload one to enable Internal SKU matching.';
+  analysisModeNote.textContent = modeNoteText + catalogStatus;
   analysisModeNote.style.display = '';
 
   var html = submittedRows.map(function(r){
@@ -982,7 +991,8 @@ function runContracts() {
   document.getElementById('tc-analysis').textContent = worthCount + '/' + submittedRows.length;
   document.getElementById('tc-recs').textContent = recRows.length;
   refreshContractExplorer();
-  switchTab('contracts', 'c-analysis');
+  var isFirstRun = document.getElementById('analysis-empty').style.display !== 'none';
+  if (isFirstRun) switchTab('contracts', 'c-analysis');
 }
 
 function statEl(v, l, cls) {
@@ -1002,7 +1012,11 @@ function runMapper() {
 
   var mapRows = merchantSkus.map(function(sku){
     var scored = S.catalogData.map(function(cat){
-      return { cat: cat, score: smartScore(sku, cat.internal_sku) };
+      var score = Math.max(
+        smartScore(sku, cat.internal_sku),
+        smartScore(sku, cat.label || cat.internal_sku)
+      );
+      return { cat: cat, score: score };
     });
     scored.sort(function(a,b){ return b.score - a.score; });
     var top = scored.slice(0, TOP_N);
@@ -1061,7 +1075,9 @@ function runMapper() {
   document.getElementById('tc-mapper').textContent = matched.length;
   document.getElementById('tc-unmatched').textContent = unmatched.length || '0';
   refreshCatalogExplorer();
-  switchTab('mapper', 'm-main');
+  // Only auto-navigate to results on first run (when empty state is still showing)
+  var isFirstRun = document.getElementById('mapper-empty').style.display !== 'none';
+  if (isFirstRun) switchTab('mapper', 'm-main');
 }
 
 // ── Tab helpers ────────────────────────────────────────
@@ -1080,9 +1096,14 @@ function dlCsv(name, rows){ var blob=new Blob([rows.map(function(r){return r.map
 
 document.getElementById('export-analysis-btn').addEventListener('click', function(){
   if (!S.analysis) return;
-  var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants']];
+  var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants','Internal SKU','Internal SKU Score %']];
   S.analysis.submitted.forEach(function(r){
-    rows.push([r.sku, Math.round(r.total), r.worth?'Worth':'Not worth', r.note, r.matches.map(function(m){ return m.name+'('+Math.round(m.contracts)+')'; }).join('; ')]);
+    var catMatch = bestCatalogMatch(r.sku);
+    rows.push([r.sku, Math.round(r.total), r.worth?'Worth':'Not worth', r.note,
+      r.matches.map(function(m){ return m.name+'('+Math.round(m.contracts)+')'; }).join('; '),
+      catMatch ? catMatch.internal_sku : '',
+      catMatch ? Math.round(catMatch.score*100) : ''
+    ]);
   });
   dlCsv('analysis.csv', rows);
 });
@@ -1100,8 +1121,11 @@ document.getElementById('export-all-btn').addEventListener('click', function(){
 });
 document.getElementById('export-recs-btn').addEventListener('click', function(){
   if (!S.analysis) return;
-  var rows = [['SKU','Contracts']];
-  S.analysis.recommended.forEach(function(r){ rows.push([r.name, Math.round(r.contracts)]); });
+  var rows = [['SKU','Contracts','Internal SKU','Internal SKU Score %']];
+  S.analysis.recommended.forEach(function(r){
+    var catMatch = bestCatalogMatch(r.name);
+    rows.push([r.name, Math.round(r.contracts), catMatch ? catMatch.internal_sku : '', catMatch ? Math.round(catMatch.score*100) : '']);
+  });
   dlCsv('recommendations.csv', rows);
 });
 document.getElementById('export-mapper-btn').addEventListener('click', function(){
