@@ -271,13 +271,7 @@
       <span class="setting-lbl">Min contracts threshold</span>
       <input type="number" class="num-input" id="threshold" value="5" min="1">
     </div>
-    <div style="margin-top:10px">
-      <div class="setting-lbl" style="margin-bottom:4px">Recommendation mode</div>
-      <select id="rec-mode" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);">
-        <option value="merchant">Missing from Merchant List</option>
-        <option value="catalog">Missing from Internal Catalog</option>
-      </select>
-    </div>
+
   </div>
 
   <button class="run-btn" id="run-btn">▶ Run</button>
@@ -299,7 +293,7 @@
       <div class="empty" id="analysis-empty"><div class="e-icon">📊</div>Upload Merchant SKUs + Contract Data, then run.</div>
       <div id="analysis-content" style="display:none">
         <div class="stats-row" id="stats-grid"></div>
-        <div class="notice notice-info" id="analysis-mode-note" style="display:none"></div>
+
         <div class="section-hdr">
           <h2>Submitted SKUs</h2>
           <div class="export-row">
@@ -335,7 +329,7 @@
     <div class="tab-panel" id="tab-c-recs">
       <div class="empty" id="recs-empty"><div class="e-icon">📦</div>Run Analysis to see recommended additions.</div>
       <div id="recs-content" style="display:none">
-        <div class="notice notice-info" id="recs-mode-note"></div>
+
         <div class="section-hdr">
           <h2>Recommended additions</h2>
           <button class="btn-sm" id="export-recs-btn">↓ Export</button>
@@ -920,7 +914,6 @@ function runContracts() {
     warmCatalogCache(merchantSkus);
   }
 
-  var recMode = document.getElementById('rec-mode').value;
   var threshold = parseInt(document.getElementById('threshold').value, 10) || 5;
 
   var submittedRows = merchantSkus.map(function(sku){
@@ -943,16 +936,8 @@ function runContracts() {
     });
   });
 
-  var modeNoteText = recMode === 'catalog'
-    ? 'Showing high-contract SKUs missing from the Internal Catalog.'
-    : 'Showing high-contract SKUs not covered by the submitted Merchant SKU list.';
-
   var recRows = contractData.filter(function(d){
     if (d.contracts < threshold) return false;
-    if (recMode === 'catalog') {
-      if (!S.catalogData.length) return false;
-      return !catalogContains(d.name);
-    }
     return !covered[d.name.toLowerCase()];
   }).slice(0, 60);
 
@@ -965,14 +950,6 @@ function runContracts() {
     statEl(worthCount, 'Worth uploading', 'sv-green') +
     statEl(notWorthCount, 'Not worth', 'sv-red') +
     statEl(recRows.length, 'Recommended', 'sv-blue');
-
-  // Show mode note + catalog status
-  var analysisModeNote = document.getElementById('analysis-mode-note');
-  var catalogStatus = S.catalogData.length
-    ? ' · Internal Catalog loaded (' + S.catalogData.length + ' SKUs) — matching active.'
-    : ' · No Internal Catalog loaded — upload one to enable Internal SKU matching.';
-  analysisModeNote.textContent = modeNoteText + catalogStatus;
-  analysisModeNote.style.display = '';
 
   var html = submittedRows.map(function(r){
     var varList = '';
@@ -1009,7 +986,6 @@ function runContracts() {
   document.getElementById('analysis-content').style.display = '';
 
   // Recs tab
-  document.getElementById('recs-mode-note').textContent = modeNoteText;
   var recHtml = recRows.length
     ? recRows.map(function(r){
         var catMatch = bestCatalogMatch(r.name);
