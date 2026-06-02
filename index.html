@@ -297,7 +297,7 @@
         </div>
         <div class="tbl-wrap">
           <table><thead><tr>
-            <th>Merchant SKU</th><th>Contracts</th><th>Status</th><th>Match note</th>
+            <th>Merchant SKU</th><th>Contracts</th><th>Status</th><th>Match note</th><th>Internal SKU</th>
           </tr></thead><tbody id="submitted-body"></tbody></table>
         </div>
       </div>
@@ -313,7 +313,7 @@
         </div>
         <div class="search-hint" id="c-explorer-hint"></div>
         <div class="tbl-wrap">
-          <table><thead><tr><th>Model</th><th>Contracts</th></tr></thead>
+          <table><thead><tr><th>Model</th><th>Contracts</th><th>Internal SKU</th></tr></thead>
           <tbody id="c-explorer-body"></tbody></table>
         </div>
       </div>
@@ -329,7 +329,7 @@
           <button class="btn-sm" id="export-recs-btn">↓ Export</button>
         </div>
         <div class="tbl-wrap">
-          <table><thead><tr><th>SKU</th><th>Contracts</th><th></th></tr></thead>
+          <table><thead><tr><th>SKU</th><th>Contracts</th><th>Internal SKU</th><th></th></tr></thead>
           <tbody id="rec-body"></tbody></table>
         </div>
       </div>
@@ -484,6 +484,21 @@ function catalogContains(contractName) {
     var labelScore = smartScore(contractName, cat.label || cat.internal_sku);
     return labelScore >= 0.7;
   });
+}
+
+// Returns { internal_sku, label, score } or null if no catalog loaded / no good match
+function bestCatalogMatch(name) {
+  if (!S.catalogData.length) return null;
+  var best = null, bestScore = 0;
+  S.catalogData.forEach(function(cat) {
+    var s = Math.max(
+      smartScore(name, cat.internal_sku),
+      smartScore(name, cat.label || cat.internal_sku)
+    );
+    if (s > bestScore) { bestScore = s; best = cat; }
+  });
+  if (!best || bestScore < 0.3) return null;
+  return { internal_sku: best.internal_sku, label: best.label, score: bestScore };
 }
 
 function matchesContract(skuTokens, contractTokens) {
@@ -757,7 +772,19 @@ function renderContractExplorer(q) {
       var idx = d.name.toLowerCase().indexOf(q.toLowerCase());
       if (idx > -1) nameHtml = esc(d.name.slice(0,idx)) + '<mark style="background:#fef9c3;border-radius:2px">' + esc(d.name.slice(idx,idx+q.length)) + '</mark>' + esc(d.name.slice(idx+q.length));
     }
-    return '<tr><td class="mono">' + nameHtml + '</td><td class="mono">' + Math.round(d.contracts).toLocaleString() + '</td></tr>';
+    // Internal SKU match column
+    var catMatch = bestCatalogMatch(d.name);
+    var catCell = '';
+    if (!S.catalogData.length) {
+      catCell = '<span style="color:var(--text-faint);font-size:11px">—</span>';
+    } else if (catMatch) {
+      var pct = Math.round(catMatch.score * 100);
+      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
+      catCell = '<span class="mono" style="font-size:11px">' + esc(catMatch.internal_sku) + '</span> <span class="score-pill ' + sp + '">' + pct + '%</span>';
+    } else {
+      catCell = '<span style="color:var(--text-faint);font-size:11px">No match</span>';
+    }
+    return '<tr><td class="mono">' + nameHtml + '</td><td class="mono">' + Math.round(d.contracts).toLocaleString() + '</td><td>' + catCell + '</td></tr>';
   }).join('');
   document.getElementById('c-explorer-body').innerHTML = html || '<tr><td colspan="2" style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
 }
@@ -897,11 +924,26 @@ function runContracts() {
       varList = '<div class="sub-text">' + esc(r.matches[0].name) + '</div>';
     var bc = r.worth ? 'b-green' : (r.matches.length ? 'b-red' : 'b-gray');
     var bl = r.worth ? 'Worth it' : (r.matches.length ? 'Not worth' : 'No data');
+    // Internal SKU match
+    var catMatch = bestCatalogMatch(r.sku);
+    var catCell = '';
+    if (!S.catalogData.length) {
+      catCell = '<span style="color:var(--text-faint);font-size:11px">No catalog</span>';
+    } else if (catMatch) {
+      var pct = Math.round(catMatch.score * 100);
+      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
+      catCell = '<span class="mono" style="font-size:12px">' + esc(catMatch.internal_sku) + '</span>' +
+        (catMatch.label !== catMatch.internal_sku ? '<div class="sub-text">' + esc(catMatch.label) + '</div>' : '') +
+        ' <span class="score-pill ' + sp + '">' + pct + '%</span>';
+    } else {
+      catCell = '<span class="badge b-gray">No match</span>';
+    }
     return '<tr>' +
       '<td class="mono" style="font-weight:500">' + esc(r.sku) + '</td>' +
       '<td class="mono">' + Math.round(r.total).toLocaleString() + '</td>' +
       '<td><span class="badge ' + bc + '">' + bl + '</span></td>' +
       '<td style="color:var(--text-muted)">' + esc(r.note) + varList + '</td>' +
+      '<td>' + catCell + '</td>' +
       '</tr>';
   }).join('');
   document.getElementById('submitted-body').innerHTML = html;
@@ -911,8 +953,28 @@ function runContracts() {
   // Recs
   document.getElementById('recs-mode-note').textContent = modeNoteText;
   var recHtml = recRows.length
-    ? recRows.map(function(r){ return '<tr><td class="mono">' + esc(r.name) + '</td><td class="mono">' + Math.round(r.contracts).toLocaleString() + '</td><td><span class="badge b-blue">Add</span></td></tr>'; }).join('')
-    : '<tr><td colspan="3" style="color:var(--text-faint);padding:1.5rem">None above threshold.</td></tr>';
+    ? recRows.map(function(r){
+        var catMatch = bestCatalogMatch(r.name);
+        var catCell = '';
+        if (!S.catalogData.length) {
+          catCell = '<span style="color:var(--text-faint);font-size:11px">No catalog</span>';
+        } else if (catMatch) {
+          var pct = Math.round(catMatch.score * 100);
+          var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
+          catCell = '<span class="mono" style="font-size:12px">' + esc(catMatch.internal_sku) + '</span>' +
+            (catMatch.label !== catMatch.internal_sku ? '<div class="sub-text">' + esc(catMatch.label) + '</div>' : '') +
+            ' <span class="score-pill ' + sp + '">' + pct + '%</span>';
+        } else {
+          catCell = '<span class="badge b-gray">No match</span>';
+        }
+        return '<tr>' +
+          '<td class="mono">' + esc(r.name) + '</td>' +
+          '<td class="mono">' + Math.round(r.contracts).toLocaleString() + '</td>' +
+          '<td>' + catCell + '</td>' +
+          '<td><span class="badge b-blue">Add</span></td>' +
+          '</tr>';
+      }).join('')
+    : '<tr><td colspan="4" style="color:var(--text-faint);padding:1.5rem">None above threshold.</td></tr>';
   document.getElementById('rec-body').innerHTML = recHtml;
   document.getElementById('recs-empty').style.display = recRows.length ? 'none' : '';
   document.getElementById('recs-content').style.display = recRows.length ? '' : 'none';
