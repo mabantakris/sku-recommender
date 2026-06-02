@@ -574,25 +574,29 @@ function readFile(file) {
 // ── Parsers ────────────────────────────────────────────
 function rowsToContracts(rows) {
   if (!rows || !rows.length) return [];
-  var modelCol = 0, contractsCol = rows[0].length - 1, startRow = 0;
-  var first = rows[0].map(function(c){ return String(c||'').toLowerCase(); });
-  if (/model|sku|name|contract|count/i.test(first.join(' '))) startRow = 1;
+  var modelCol = -1, contractsCol = -1, startRow = 0;
+  var first = rows[0].map(function(c){ return String(c||'').toLowerCase().trim(); });
+  // Detect header row
+  if (first.some(function(h){ return /model|sku|name|contract|count/i.test(h); })) startRow = 1;
   first.forEach(function(h, i){
-    if (/model|sku|name|product/i.test(h)) modelCol = i;
-    if (/contract|count|qty|sales|units/i.test(h)) contractsCol = i;
+    if (modelCol === -1 && /model|sku|name|product/i.test(h)) modelCol = i;
+    if (contractsCol === -1 && /contract|count|qty|sales|units/i.test(h)) contractsCol = i;
   });
+  // Fallback: col 0 = model, col 1 = contracts
+  if (modelCol === -1) modelCol = 0;
+  if (contractsCol === -1) contractsCol = modelCol === 0 ? 1 : 0;
   var map = {};
   for (var i = startRow; i < rows.length; i++) {
     var row = rows[i]; if (!row || row.length < 2) continue;
     var rawName = String(row[modelCol]||'').trim();
     var num = normalizeNum(row[contractsCol]);
-    if (!rawName || isNaN(num)) continue;
+    if (!rawName || isNaN(num) || num <= 0) continue;
     var name = stripBrand(rawName);
     var key = name.toLowerCase();
     if (!map[key]) map[key] = { name: name, contracts: 0 };
     map[key].contracts += num;
   }
-  return Object.values(map).sort(function(a,b){ return b.contracts-a.contracts; });
+  return Object.keys(map).map(function(k){ return map[k]; }).sort(function(a,b){ return b.contracts-a.contracts; });
 }
 
 function textToContracts(text) {
@@ -608,7 +612,7 @@ function textToContracts(text) {
     if (!map[key]) map[key] = { name: name, contracts: 0 };
     map[key].contracts += num;
   });
-  return Object.values(map).sort(function(a,b){ return b.contracts-a.contracts; });
+  return Object.keys(map).map(function(k){ return map[k]; }).sort(function(a,b){ return b.contracts-a.contracts; });
 }
 
 function rowsToCatalog(rows) {
@@ -886,19 +890,21 @@ function getMerchantSkus() {
 
 // ── Contracts mode ─────────────────────────────────────
 function runContracts() {
+  try {
   var merchantSkus = getMerchantSkus();
-  var taContract = document.getElementById('ta-contract');
-  var taCatalogC = document.getElementById('ta-catalog');
   if (!merchantSkus.length) { alert('Please enter or upload at least one merchant SKU.'); return; }
 
-  if (taContract && slotData.contract && !slotData.contract.rows) {
-    S.contractData = textToContracts(taContract.value);
+  // Parse contract data from textarea if no file was uploaded
+  var taContract = document.getElementById('ta-contract');
+  if (taContract && !(slotData.contract && slotData.contract.rows)) {
+    S.contractData = textToContracts(taContract.value || '');
   }
-  if (!S.contractData.length) { alert('Please provide or upload contract data.'); return; }
+  if (!S.contractData || !S.contractData.length) { alert('Please provide or upload contract data.'); return; }
 
-  // Re-parse catalog textarea if not loaded via file
-  if (taCatalogC && slotData.catalog && !slotData.catalog.rows) {
-    var newCatalog = textToCatalog(taCatalogC.value);
+  // Parse catalog from textarea if no file was uploaded
+  var taCatalogC = document.getElementById('ta-catalog');
+  if (taCatalogC && !(slotData.catalog && slotData.catalog.rows)) {
+    var newCatalog = textToCatalog(taCatalogC.value || '');
     if (newCatalog.length !== S.catalogData.length) {
       S.catalogData = newCatalog;
       invalidateCatalogCache();
@@ -907,14 +913,14 @@ function runContracts() {
 
   var contractData = S.contractData;
 
-  // Pre-compute all catalog matches up front — FIX: use contractData (declared above)
-  if (S.catalogData.length) {
-    var allNames = contractData.map(function(d){ return d.name; });
-    warmCatalogCache(allNames);
+  // Pre-warm catalog match cache
+  if (S.catalogData && S.catalogData.length) {
+    warmCatalogCache(contractData.map(function(d){ return d.name; }));
     warmCatalogCache(merchantSkus);
   }
 
-  var threshold = parseInt(document.getElementById('threshold').value, 10) || 5;
+  var thresholdEl = document.getElementById('threshold');
+  var threshold = thresholdEl ? (parseInt(thresholdEl.value, 10) || 5) : 5;
 
   var submittedRows = merchantSkus.map(function(sku){
     var st = tokContract(sku);
@@ -1016,6 +1022,10 @@ function runContracts() {
   document.getElementById('tc-analysis').textContent = worthCount + '/' + submittedRows.length;
   document.getElementById('tc-recs').textContent = recRows.length;
   refreshContractExplorer();
+  } catch(e) {
+    console.error('runContracts error:', e);
+    alert('Error running analysis: ' + e.message + '\n\nCheck the browser console (F12) for details.');
+  }
 }
 
 function statEl(v, l, cls) {
