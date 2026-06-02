@@ -896,20 +896,17 @@ function runContracts() {
     S.catalogData = textToCatalog(taCatalog.value || '');
   }
 
-  // Build a simple normalized lookup set from catalog SKU IDs
-  var catalogSet = {};
-  S.catalogData.forEach(function(sku) {
-    catalogSet[String(sku).toLowerCase().trim()] = sku;
-  });
-
-  // Simple lookup: normalize merchant SKU and check if it exists in catalog
-  function findInCatalog(merchantSku) {
-    var key = String(merchantSku).toLowerCase().trim();
-    if (catalogSet[key]) return catalogSet[key];
-    // Also try stripping common prefixes (e.g. "Vivo ")
-    var stripped = key.replace(/^vivo\s+/i, '').trim();
-    if (catalogSet[stripped]) return catalogSet[stripped];
-    return null;
+  // Fuzzy match each merchant SKU against catalog — runs only on the small submitted list
+  function matchCatalog(merchantSku) {
+    if (!S.catalogData.length) return [];
+    var scored = [];
+    for (var i = 0; i < S.catalogData.length; i++) {
+      var catStr = typeof S.catalogData[i] === 'string' ? S.catalogData[i] : (S.catalogData[i].internal_sku || '');
+      var s = smartScore(merchantSku, catStr);
+      if (s > 0) scored.push({ sku: catStr, score: s });
+    }
+    scored.sort(function(a, b){ return b.score - a.score; });
+    return scored.slice(0, 3);
   }
 
   var contractData = S.contractData;
@@ -926,7 +923,7 @@ function runContracts() {
     else if (matches.length === 1 && tokContract(matches[0].name).join(' ') === st.join(' ')) note = 'Exact match';
     else if (matches.length === 1) note = 'Partial match';
     else note = 'Aggregated ' + matches.length + ' variants';
-    return { sku: sku, total: total, worth: worth, note: note, matches: matches };
+    return { sku: sku, total: total, worth: worth, note: note, matches: matches, catalogMatches: matchCatalog(sku) };
   });
 
   var worthCount = submittedRows.filter(function(r){ return r.worth; }).length;
@@ -940,7 +937,7 @@ function runContracts() {
     return d.contracts >= threshold && !covered[d.name.toLowerCase()];
   }).slice(0, 60);
 
-  S.analysis = { submitted: submittedRows, recRows: recRows, threshold: threshold, catalogSet: catalogSet };
+  S.analysis = { submitted: submittedRows, recRows: recRows, threshold: threshold };
 
   document.getElementById('stats-grid').innerHTML =
     statEl(merchantSkus.length, 'Submitted', '') +
@@ -956,10 +953,24 @@ function runContracts() {
       varList = '<div class="sub-text">' + esc(r.matches[0].name) + '</div>';
     var bc = r.worth ? 'b-green' : (r.matches.length ? 'b-red' : 'b-gray');
     var bl = r.worth ? 'Worth it' : (r.matches.length ? 'Not worth' : 'No data');
-    var internalSku = findInCatalog(r.sku);
-    var catCell = S.catalogData.length
-      ? (internalSku ? '<span class="mono" style="font-size:12px">' + esc(internalSku) + '</span>' : '<span class="badge b-gray">No match</span>')
-      : '<span style="color:var(--text-faint);font-size:11px">—</span>';
+    var catCell = '';
+    if (!S.catalogData.length) {
+      catCell = '<span style="color:var(--text-faint);font-size:11px">—</span>';
+    } else if (!r.catalogMatches.length) {
+      catCell = '<span class="badge b-gray">No match</span>';
+    } else {
+      var best = r.catalogMatches[0];
+      var pct = Math.round(best.score * 100);
+      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
+      catCell = '<span class="mono" style="font-size:12px">' + esc(best.sku) + '</span> <span class="score-pill ' + sp + '">' + pct + '%</span>';
+      if (r.catalogMatches.length > 1) {
+        catCell += '<div class="candidates">' + r.catalogMatches.slice(1).map(function(c, i){
+          var cp = Math.round(c.score * 100);
+          var csp = cp >= 70 ? 'sp-high' : cp >= 45 ? 'sp-mid' : 'sp-low';
+          return '<div class="candidate"><span class="c-rank">#' + (i+2) + '</span><span class="c-name">' + esc(c.sku) + '</span><span class="score-pill ' + csp + '">' + cp + '%</span></div>';
+        }).join('') + '</div>';
+      }
+    }
     return '<tr>' +
       '<td class="mono" style="font-weight:500">' + esc(r.sku) + '</td>' +
       '<td class="mono">' + Math.round(r.total).toLocaleString() + '</td>' +
@@ -1095,12 +1106,13 @@ function dlCsv(name, rows){ var blob=new Blob([rows.map(function(r){return r.map
 
 document.getElementById('export-analysis-btn').addEventListener('click', function(){
   if (!S.analysis) return;
-  var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants','Internal SKU']];
+  var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants','Internal SKU','Score %']];
   S.analysis.submitted.forEach(function(r){
-    var internalSku = S.analysis.catalogSet ? (S.analysis.catalogSet[r.sku.toLowerCase().trim()] || '') : '';
+    var best = r.catalogMatches && r.catalogMatches.length ? r.catalogMatches[0] : null;
     rows.push([r.sku, Math.round(r.total), r.worth?'Worth':'Not worth', r.note,
       r.matches.map(function(m){ return m.name+'('+Math.round(m.contracts)+')'; }).join('; '),
-      internalSku
+      best ? best.sku : '',
+      best ? Math.round(best.score * 100) : ''
     ]);
   });
   dlCsv('analysis.csv', rows);
