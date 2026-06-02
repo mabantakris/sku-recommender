@@ -272,12 +272,30 @@
 
   <!-- Settings (contracts mode only) -->
   <div id="settings-block">
-    <div class="mode-label">Settings</div>
-    <div class="setting-row">
-      <span class="setting-lbl">Min contracts threshold</span>
-      <input type="number" class="num-input" id="threshold" value="5" min="1">
-    </div>
+  <div class="mode-label">Settings</div>
+
+  <div class="setting-row">
+    <span class="setting-lbl">Min contracts threshold</span>
+    <input type="number" class="num-input" id="threshold" value="5" min="1">
   </div>
+
+  <div style="margin-top:10px">
+    <div class="setting-lbl" style="margin-bottom:4px">
+      Recommendation mode
+    </div>
+
+    <select id="rec-mode" style="
+      width:100%;
+      padding:6px;
+      border:1px solid var(--border);
+      border-radius:6px;
+      background:var(--bg);
+    ">
+      <option value="merchant">Missing from Merchant List</option>
+      <option value="catalog">Missing from Internal Catalog</option>
+    </select>
+  </div>
+</div>
 
   <button class="run-btn" id="run-btn">▶ Run</button>
 </aside>
@@ -299,6 +317,7 @@
       <div id="analysis-content" style="display:none">
         <div class="stats-row" id="stats-grid"></div>
         <div class="section-hdr">
+          <div id="rec-mode-note" class="search-hint"></div>
           <h2>Submitted SKUs</h2>
           <div class="export-row">
             <button class="btn-sm" id="export-analysis-btn">↓ Export</button>
@@ -335,6 +354,7 @@
       <div id="recs-content" style="display:none">
         <div class="section-hdr">
           <h2>Recommended additions</h2>
+          <div id="rec-mode-note" class="search-hint"></div>
           <button class="btn-sm" id="export-recs-btn">↓ Export</button>
         </div>
         <div class="tbl-wrap">
@@ -403,9 +423,28 @@ var S = {
 // ══ DATASET SLOT DEFINITIONS ════════════════════════════
 var SLOTS = {
   contracts: [
-    { id: 'sku',      label: 'Merchant SKUs',  req: true,  accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
-    { id: 'contract', label: 'Contract Data',  req: true,  accept: '.csv,.tsv,.txt,.xlsx', ph: 'model,contracts\nVivo V70 FE 8+256,409\nVivo V70 8+256,1199' }
-  ],
+  {
+    id: 'sku',
+    label: 'Merchant SKUs',
+    req: true,
+    accept: '.csv,.txt,.tsv,.xlsx',
+    ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256'
+  },
+  {
+    id: 'contract',
+    label: 'Contract Data',
+    req: true,
+    accept: '.csv,.tsv,.txt,.xlsx',
+    ph: 'model,contracts\nVivo V70 FE 8+256,409\nVivo V70 8+256,1199'
+  },
+  {
+    id: 'catalog',
+    label: 'Internal Catalog',
+    req: false,
+    accept: '.csv,.tsv,.txt,.xlsx',
+    ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB'
+  }
+],
   mapper: [
     { id: 'sku',      label: 'Merchant SKUs',  req: true,  accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
     { id: 'catalog',  label: 'Internal Catalog', req: true, accept: '.csv,.tsv,.txt,.xlsx', ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB' }
@@ -476,7 +515,25 @@ function smartScore(merchantSku, internalSku) {
   var it = tok(internalSku);
   return Math.min(1, scoreTokens(mt, it) + substringBonus(merchantSku, internalSku));
 }
+function catalogContains(contractName) {
+  if (!S.catalogData.length) return false;
 
+  var contractTokens = tok(contractName);
+
+  return S.catalogData.some(function(cat) {
+    var score = smartScore(contractName, cat.internal_sku);
+
+    if (score >= 0.7) return true;
+
+    var labelScore = smartScore(
+      contractName,
+      cat.label || cat.internal_sku
+    );
+
+    return labelScore >= 0.7;
+  });
+}
+   
 // ── For contract matching (looser: brand-inclusive) ──────
 function matchesContract(skuTokens, contractTokens) {
   var allSubInCon = skuTokens.every(function(t){ return contractTokens.indexOf(t) > -1; });
@@ -814,8 +871,35 @@ function runContracts() {
   });
 
   var covered = {};
-  submittedRows.forEach(function(r){ r.matches.forEach(function(m){ covered[m.name.toLowerCase()] = true; }); });
-  var recRows = contractData.filter(function(d){ return !covered[d.name.toLowerCase()] && d.contracts >= threshold; }).slice(0, 60);
+
+submittedRows.forEach(function(r){
+  r.matches.forEach(function(m){
+    covered[m.name.toLowerCase()] = true;
+  });
+});
+
+var hasCatalog = S.catalogData.length > 0;
+  document.getElementById('rec-mode-note').textContent =
+  recMode === 'catalog'
+    ? 'Showing high-contract SKUs missing from the Internal Catalog.'
+    : 'Showing high-contract SKUs not covered by the submitted Merchant SKU list.';
+
+var recRows = contractData.filter(function(d){
+
+  if (d.contracts < threshold)
+    return false;
+
+  if (recMode === 'catalog') {
+
+    if (!S.catalogData.length)
+      return false;
+
+    return !catalogContains(d.name);
+  }
+
+  return !covered[d.name.toLowerCase()];
+
+}).slice(0,60);
 
   S.analysis = { submitted: submittedRows, recommended: recRows, threshold: threshold };
 
