@@ -431,6 +431,7 @@
   <div id="view-expander" style="display:none">
     <div class="tabs-bar">
       <button class="tab-btn active" data-tab="e-main">SKU Expander <span class="tc" id="tc-expander">—</span></button>
+      <button class="tab-btn" data-tab="e-catalog">Catalog Search</button>
     </div>
     <div class="tab-panel active" id="tab-e-main">
       <div class="empty" id="expander-empty"><div class="e-icon">🎨</div>Upload Merchant SKUs + Internal Catalog, then run.</div>
@@ -442,13 +443,28 @@
         </div>
         <div class="tbl-wrap">
           <table><thead><tr>
-            <th>Merchant SKU</th><th>Matched Internal SKUs (all colorways)</th><th>Count</th><th>Action</th>
+            <th>Merchant SKU</th><th>Matched Internal SKU</th><th>Score</th><th>Action</th>
           </tr></thead><tbody id="expander-body"></tbody></table>
         </div>
-        <div style="margin-top:.75rem;display:flex;gap:8px;align-items:center">
+        <div style="margin-top:.75rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn-sm" id="expander-select-all-btn">✓ Keep All</button>
           <button class="btn-sm" id="expander-remove-all-btn">✗ Remove All</button>
           <span id="expander-kept-count" style="font-size:11px;color:var(--text-muted)"></span>
+        </div>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-e-catalog">
+      <div class="empty" id="e-catalog-empty"><div class="e-icon">🔍</div>Upload Internal Catalog first, then search.</div>
+      <div id="e-catalog-content" style="display:none">
+        <div class="notice notice-info" style="margin-bottom:.75rem">Search the catalog and click <strong>+ Add to row</strong> to override a match. Your kept/removed selections are preserved.</div>
+        <div class="search-row">
+          <input type="text" class="search-input" id="e-catalog-search" placeholder="Search e.g. &quot;iPad Air&quot;, &quot;128GB&quot;, &quot;Starlight&quot;">
+          <button class="btn-sm" id="e-catalog-clear-btn">Clear</button>
+        </div>
+        <div class="search-hint" id="e-catalog-hint"></div>
+        <div class="tbl-wrap">
+          <table><thead><tr><th>Internal SKU ID</th><th>Apply to row</th></tr></thead>
+          <tbody id="e-catalog-body"></tbody></table>
         </div>
       </div>
     </div>
@@ -896,6 +912,7 @@ function wireSlot(slotId) {
         refreshCatalogExplorer();
         refreshContractCatalogExplorer();
         refreshMapperCatalogSearch();
+        refreshExpanderCatalogSearch();
       } else if (slotId === 'sku' && result.rows) {
         ta.value = rowsToSkus(result.rows).join('\n');
       } else if (slotId === 'sku') {
@@ -909,7 +926,8 @@ function wireSlot(slotId) {
     fi.value = ''; slotData[slotId] = { rows: null, text: '' };
     if (ta) ta.value = '';
     if (slotId === 'contract') { S.contractData = []; refreshContractExplorer(); }
-    if (slotId === 'catalog') { S.catalogData = []; S.catalogSkus = []; S.catalogProductNames = []; invalidateCatalogCache(); refreshCatalogExplorer(); refreshContractCatalogExplorer(); refreshMapperCatalogSearch(); }
+    if (slotId === 'catalog') { S.catalogData = []; S.catalogSkus = []; S.catalogProductNames = []; invalidateCatalogCache(); refreshCatalogExplorer(); refreshContractCatalogExplorer(); refreshMapperCatalogSearch();
+        refreshExpanderCatalogSearch(); }
   });
   if (ta) {
     ta.addEventListener('input', function(){
@@ -1431,149 +1449,298 @@ function expandScore(merchantSku, internalSku) {
 }
 
 function runExpander() {
-  var merchantSkus = getMerchantSkus();
-  if (!merchantSkus.length) { alert('Please enter or upload at least one merchant SKU.'); return; }
-  if (!S.catalogSkus || !S.catalogSkus.length) { alert('Please upload the Internal Catalog.'); return; }
+  try {
+    var merchantSkus = getMerchantSkus();
+    if (!merchantSkus.length) { alert('Please enter at least one merchant SKU.'); return; }
+    if (!S.catalogSkus || !S.catalogSkus.length) { alert('Please upload the Internal Catalog.'); return; }
 
-  var EXPAND_THRESHOLD = 0.55; // must match on non-color tokens at this level
-
-  var expandedRows = merchantSkus.map(function(merchantSku) {
-    // Find all catalog SKUs that match on color-stripped tokens
-    var matches = [];
-    S.catalogSkus.forEach(function(internalSku) {
-      var score = expandScore(merchantSku, internalSku);
-      if (score >= EXPAND_THRESHOLD) {
-        matches.push({ sku: internalSku, score: score });
-      }
+    var EXPAND_THRESHOLD = 0.55;
+    var expandedRows = merchantSkus.map(function(merchantSku) {
+      var matches = [];
+      S.catalogSkus.forEach(function(internalSku) {
+        var score = expandScore(merchantSku, internalSku);
+        if (score >= EXPAND_THRESHOLD) matches.push({ sku: internalSku, score: score });
+      });
+      matches.sort(function(a,b){ return b.score - a.score; });
+      return { merchantSku: merchantSku, matches: matches };
     });
-    matches.sort(function(a, b){ return b.score - a.score; });
-    return { merchantSku: merchantSku, matches: matches };
-  });
 
-  S.expandedRows = expandedRows;
+    S.expandedRows = expandedRows;
+    expanderKept = {};
+    window.expanderOverrides = {};
+    window.expanderPendingOverrides = {};
 
-  var totalMatches = expandedRows.reduce(function(s, r){ return s + r.matches.length; }, 0);
-  var noMatchCount = expandedRows.filter(function(r){ return !r.matches.length; }).length;
+    var totalMatches = expandedRows.reduce(function(s,r){ return s + r.matches.length; }, 0);
+    var noMatchCount = expandedRows.filter(function(r){ return !r.matches.length; }).length;
+    document.getElementById('expander-notice').textContent =
+      expandedRows.length + ' merchant SKUs → ' + totalMatches + ' variants found' +
+      (noMatchCount ? ' · ' + noMatchCount + ' with no match' : '');
 
-  document.getElementById('expander-notice').textContent =
-    expandedRows.length + ' merchant SKUs expanded → ' + totalMatches + ' internal SKU variants found' +
-    (noMatchCount ? ' · ' + noMatchCount + ' with no match' : '');
+    expanderRebuildTable();
 
-  // Reset state
-  expanderKept = {};
-  window.expanderOverrides = {};
-  window.expanderPendingOverrides = {};
+    document.getElementById('expander-empty').style.display = 'none';
+    document.getElementById('expander-content').style.display = '';
+    document.getElementById('tc-expander').textContent = totalMatches;
+    refreshExpanderCatalogSearch();
+  } catch(e) {
+    console.error('runExpander error:', e);
+    alert('Error: ' + e.message);
+  }
+}
+
+// ── Build the expander table rows ──────────────────────
+function expanderRebuildTable() {
+  var expandedRows = S.expandedRows || [];
   var rowId = 0;
-
   var htmlParts = [];
+
   expandedRows.forEach(function(r) {
     if (!r.matches.length) {
       var rid = 'er' + (rowId++);
-      expanderKept[rid] = false;
-      htmlParts.push(
-        '<tr id="' + rid + '" class="exp-row exp-removed">' +
-        '<td class="mono" style="font-weight:500;color:var(--red);vertical-align:middle">' + esc(r.merchantSku) + '</td>' +
-        '<td style="vertical-align:middle">' +
-          '<span class="badge b-gray">No match</span>' +
-          '<div style="margin-top:5px">' +
-            '<input type="text" class="exp-override-input" data-rid="' + rid + '" placeholder="Type override SKU..." ' +
-            'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;width:240px;background:var(--surface)">' +
-          '</div>' +
-          '<div id="' + rid + '-confirm" class="exp-confirm" style="display:none;margin-top:5px">' +
-            '<span style="font-size:11px;color:var(--text-muted);margin-right:6px">Add this override?</span>' +
-            '<button class="btn-sm exp-confirm-keep" data-rid="' + rid + '" style="color:var(--green)">✓ Keep</button>' +
-            '<button class="btn-sm exp-confirm-remove" data-rid="' + rid + '" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
-          '</div>' +
-        '</td>' +
-        '<td style="vertical-align:middle">—</td>' +
-        '<td style="vertical-align:middle;white-space:nowrap">' +
-          '<button class="btn-sm exp-keep-btn" data-rid="' + rid + '" style="color:var(--text-faint)">✓ Keep</button>' +
-          '<button class="btn-sm exp-remove-btn" data-rid="' + rid + '" style="color:var(--red);font-weight:700;margin-left:3px">✗ Remove</button>' +
-        '</td>' +
-        '</tr>'
-      );
+      if (!(rid in expanderKept)) expanderKept[rid] = false;
+      var kept = expanderKept[rid];
+      htmlParts.push(expanderRowHtml(rid, r.merchantSku, '', 0, kept, true));
     } else {
       r.matches.forEach(function(m) {
         var rid = 'er' + (rowId++);
-        expanderKept[rid] = true;
-        var pct = Math.round(m.score * 100);
-        var sp = pct >= 80 ? 'sp-high' : pct >= 60 ? 'sp-mid' : 'sp-low';
-        htmlParts.push(
-          '<tr id="' + rid + '" class="exp-row exp-kept">' +
-          '<td class="mono" style="font-weight:500;vertical-align:middle">' + esc(r.merchantSku) + '</td>' +
-          '<td style="vertical-align:middle">' +
-            '<span class="mono" style="font-size:12px">' + esc(m.sku) + '</span>' +
-            '<span class="score-pill ' + sp + '" style="margin-left:6px">' + pct + '%</span>' +
-            '<div style="margin-top:5px">' +
-              '<input type="text" class="exp-override-input" data-rid="' + rid + '" placeholder="Override SKU (optional)..." ' +
-              'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;width:240px;background:var(--surface)">' +
-            '</div>' +
-            '<div id="' + rid + '-confirm" class="exp-confirm" style="display:none;margin-top:5px">' +
-              '<span style="font-size:11px;color:var(--text-muted);margin-right:6px">Use this override?</span>' +
-              '<button class="btn-sm exp-confirm-keep" data-rid="' + rid + '" style="color:var(--green)">✓ Keep</button>' +
-              '<button class="btn-sm exp-confirm-remove" data-rid="' + rid + '" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
-            '</div>' +
-          '</td>' +
-          '<td class="mono" style="vertical-align:middle;color:var(--text-muted)">' + pct + '%</td>' +
-          '<td style="vertical-align:middle;white-space:nowrap">' +
-            '<button class="btn-sm exp-keep-btn" data-rid="' + rid + '" style="color:var(--green);font-weight:700">✓ Keep</button>' +
-            '<button class="btn-sm exp-remove-btn" data-rid="' + rid + '" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
-          '</td>' +
-          '</tr>'
-        );
+        if (!(rid in expanderKept)) expanderKept[rid] = true;
+        var kept = expanderKept[rid];
+        htmlParts.push(expanderRowHtml(rid, r.merchantSku, m.sku, m.score, kept, false));
       });
     }
   });
 
-  var tbody = document.getElementById('expander-body');
-  tbody.innerHTML = htmlParts.join('');
-
-  // Wire events via delegation on tbody — zero inline JS, zero quote issues
-  tbody.addEventListener('click', function(e) {
-    var btn = e.target.closest('button');
-    if (!btn) return;
-    var rid = btn.getAttribute('data-rid');
-    if (!rid) return;
-    if (btn.classList.contains('exp-keep-btn'))       { expanderToggleRow(rid, true); }
-    if (btn.classList.contains('exp-remove-btn'))     { expanderToggleRow(rid, false); }
-    if (btn.classList.contains('exp-confirm-keep'))   { expanderSetOverride(rid, true); }
-    if (btn.classList.contains('exp-confirm-remove')) { expanderSetOverride(rid, false); }
-  });
-  tbody.addEventListener('input', function(e) {
-    var inp = e.target.closest('.exp-override-input');
-    if (!inp) return;
-    expanderHandleOverride(inp.getAttribute('data-rid'), inp.value);
-  });
-
-  document.getElementById('expander-empty').style.display = 'none';
-  document.getElementById('expander-content').style.display = '';
-  document.getElementById('tc-expander').textContent = totalMatches;
+  document.getElementById('expander-body').innerHTML = htmlParts.join('');
   updateExpanderKeptCount();
 }
 
-// Called while typing in override box — show confirm buttons
+function expanderRowHtml(rid, merchantSku, internalSku, score, kept, isNoMatch) {
+  var pct = Math.round(score * 100);
+  var sp = pct >= 80 ? 'sp-high' : pct >= 60 ? 'sp-mid' : 'sp-low';
+  var override = (window.expanderOverrides && window.expanderOverrides[rid]) || '';
+  var displaySku = override || internalSku;
+  var rowStyle = kept ? '' : 'opacity:0.4;background:var(--red-bg)';
+
+  var skuCell = isNoMatch
+    ? '<span class="badge b-gray">No match</span>'
+    : '<span class="mono" style="font-size:12px">' + esc(displaySku) + '</span>' +
+      (score > 0 ? '<span class="score-pill ' + sp + '" style="margin-left:6px">' + pct + '%</span>' : '') +
+      (override ? '<div style="font-size:10px;color:var(--accent);margin-top:2px">Override: ' + esc(override) + '</div>' : '');
+
+  var overrideSection =
+    '<div style="margin-top:5px;display:flex;gap:4px;align-items:center">' +
+      '<input type="text" class="exp-override-input" data-rid="' + rid + '" value="' + esc(override) + '" ' +
+        'placeholder="Override SKU..." ' +
+        'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;' +
+               'padding:3px 6px;width:200px;background:var(--surface)">' +
+      '<button class="btn-sm exp-override-apply" data-rid="' + rid + '" style="font-size:10px">Apply</button>' +
+    '</div>' +
+    '<div id="' + rid + '-confirm" style="display:none;margin-top:4px">' +
+      '<span style="font-size:11px;color:var(--text-muted);margin-right:5px">Use this override?</span>' +
+      '<button class="btn-sm exp-confirm-keep" data-rid="' + rid + '" style="color:var(--green);font-size:10px">✓ Keep</button>' +
+      '<button class="btn-sm exp-confirm-remove" data-rid="' + rid + '" style="color:var(--red);margin-left:3px;font-size:10px">✗ Remove</button>' +
+    '</div>';
+
+  var scoreCell = isNoMatch ? '—' : (score > 0 ? pct + '%' : '—');
+
+  var keepActive = kept ? 'font-weight:700;color:var(--green)' : 'color:var(--text-faint)';
+  var removeActive = !kept ? 'font-weight:700;color:var(--red)' : 'color:var(--text-faint)';
+  var noMatchStyle = 'color:var(--text-faint)';
+
+  return '<tr id="' + rid + '" style="' + rowStyle + '">' +
+    '<td class="mono" style="font-weight:500;vertical-align:top;padding-top:10px">' + esc(merchantSku) + '</td>' +
+    '<td style="vertical-align:top">' + skuCell + overrideSection + '</td>' +
+    '<td class="mono" style="vertical-align:top;padding-top:10px">' + scoreCell + '</td>' +
+    '<td style="vertical-align:top;padding-top:8px;white-space:nowrap">' +
+      '<button class="btn-sm exp-keep-btn" data-rid="' + rid + '" style="' + keepActive + '">✓ Keep</button>' +
+      '<button class="btn-sm exp-remove-btn" data-rid="' + rid + '" style="' + removeActive + ';margin-left:3px">✗ Remove</button>' +
+      '<button class="btn-sm exp-nomatch-btn" data-rid="' + rid + '" style="' + noMatchStyle + ';margin-left:3px">∅ No match</button>' +
+    '</td>' +
+    '</tr>';
+}
+
+// ── Expander event handlers ────────────────────────────
+function expanderToggleRow(rid, keep) {
+  expanderKept[rid] = keep;
+  // Re-render just that row in place
+  var row = document.getElementById(rid);
+  if (!row) return;
+  row.style.opacity = keep ? '1' : '0.4';
+  row.style.background = keep ? '' : 'var(--red-bg)';
+  var keepBtn = row.querySelector('.exp-keep-btn');
+  var removeBtn = row.querySelector('.exp-remove-btn');
+  if (keepBtn) { keepBtn.style.fontWeight = keep ? '700' : '400'; keepBtn.style.color = keep ? 'var(--green)' : 'var(--text-faint)'; }
+  if (removeBtn) { removeBtn.style.fontWeight = keep ? '400' : '700'; removeBtn.style.color = keep ? 'var(--text-faint)' : 'var(--red)'; }
+  updateExpanderKeptCount();
+}
+
 function expanderHandleOverride(rid, val) {
   var confirmEl = document.getElementById(rid + '-confirm');
-  if (!confirmEl) return;
-  confirmEl.style.display = val.trim() ? 'block' : 'none';
-  // Store tentative override value
+  if (confirmEl) confirmEl.style.display = val.trim() ? '' : 'none';
   if (!window.expanderPendingOverrides) window.expanderPendingOverrides = {};
   window.expanderPendingOverrides[rid] = val.trim();
 }
 
-// Called when user clicks Keep/Remove on override confirm
 function expanderSetOverride(rid, keep) {
-  var val = window.expanderPendingOverrides && window.expanderPendingOverrides[rid];
-  if (val) {
-    window.expanderOverrides[rid] = val;
-  }
-  // Hide confirm row
+  var val = (window.expanderPendingOverrides && window.expanderPendingOverrides[rid]) || '';
+  if (val) window.expanderOverrides[rid] = val;
   var confirmEl = document.getElementById(rid + '-confirm');
   if (confirmEl) confirmEl.style.display = 'none';
-  // Apply keep/remove to the row
   expanderToggleRow(rid, keep);
+  // Update the displayed SKU in the cell
+  var row = document.getElementById(rid);
+  if (row && val) {
+    var skuSpan = row.querySelector('td:nth-child(2) .mono');
+    if (skuSpan) skuSpan.textContent = val;
+  }
 }
 
+// Called from catalog search "Apply to row" — sets override + triggers confirm
+function expanderApplyFromCatalog(rid, sku) {
+  var input = document.querySelector('#expander-body #' + rid + ' .exp-override-input');
+  if (input) { input.value = sku; expanderHandleOverride(rid, sku); }
+  // Switch back to SKU Expander tab
+  var view = document.getElementById('view-expander');
+  if (view) {
+    view.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-tab') === 'e-main'); });
+    view.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.toggle('active', p.id === 'tab-e-main'); });
+  }
+  // Scroll to that row
+  var row = document.getElementById(rid);
+  if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function updateExpanderKeptCount() {
+  var kept = Object.keys(expanderKept).filter(function(k){ return expanderKept[k]; }).length;
+  var total = Object.keys(expanderKept).length;
+  var el = document.getElementById('expander-kept-count');
+  if (el) el.textContent = kept + ' of ' + total + ' rows kept for export';
+}
+
+// ── Expander event delegation (wired once at init) ─────
+function initExpanderEvents() {
+  var tbody = document.getElementById('expander-body');
+  if (!tbody) return;
+
+  tbody.addEventListener('click', function(e) {
+    var btn = e.target;
+    if (btn.tagName !== 'BUTTON') return;
+    var rid = btn.getAttribute('data-rid');
+    if (!rid) return;
+    if (btn.classList.contains('exp-keep-btn'))       expanderToggleRow(rid, true);
+    else if (btn.classList.contains('exp-remove-btn'))     expanderToggleRow(rid, false);
+    else if (btn.classList.contains('exp-nomatch-btn'))    expanderSetNoMatch(rid);
+    else if (btn.classList.contains('exp-override-apply')) {
+      var input = btn.parentElement.querySelector('.exp-override-input');
+      if (input && input.value.trim()) expanderHandleOverride(rid, input.value.trim());
+    }
+    else if (btn.classList.contains('exp-confirm-keep'))   expanderSetOverride(rid, true);
+    else if (btn.classList.contains('exp-confirm-remove')) expanderSetOverride(rid, false);
+  });
+
+  tbody.addEventListener('input', function(e) {
+    if (e.target.classList.contains('exp-override-input')) {
+      // Just show/hide confirm — user must click Apply
+      var rid = e.target.getAttribute('data-rid');
+      var confirmEl = document.getElementById(rid + '-confirm');
+      if (confirmEl) confirmEl.style.display = 'none'; // hide until Apply clicked
+    }
+  });
+}
+
+// No match — keep the merchant SKU in export but blank the internal SKU
+function expanderSetNoMatch(rid) {
+  window.expanderOverrides[rid] = '__NOMATCH__';
+  expanderKept[rid] = true;
+  var row = document.getElementById(rid);
+  if (!row) return;
+  row.style.opacity = '1';
+  row.style.background = 'var(--yellow-bg)';
+  var skuSpan = row.querySelector('td:nth-child(2) .mono');
+  if (skuSpan) skuSpan.textContent = '(no match — merchant SKU retained)';
+  var keepBtn = row.querySelector('.exp-keep-btn');
+  var removeBtn = row.querySelector('.exp-remove-btn');
+  if (keepBtn) { keepBtn.style.fontWeight = '700'; keepBtn.style.color = 'var(--green)'; }
+  if (removeBtn) { removeBtn.style.fontWeight = '400'; removeBtn.style.color = 'var(--text-faint)'; }
+  updateExpanderKeptCount();
+}
+
+// ── Expander Catalog Search ────────────────────────────
+function refreshExpanderCatalogSearch() {
+  var hasCatalog = S.catalogSkus && S.catalogSkus.length;
+  document.getElementById('e-catalog-empty').style.display = hasCatalog ? 'none' : '';
+  document.getElementById('e-catalog-content').style.display = hasCatalog ? '' : 'none';
+  if (hasCatalog) renderExpanderCatalogSearch(document.getElementById('e-catalog-search').value || '');
+}
+
+function renderExpanderCatalogSearch(q) {
+  var skus = S.catalogSkus || [];
+  var filtered = q.trim() ? skus.filter(function(s){ return s.toLowerCase().indexOf(q.toLowerCase()) > -1; }) : skus;
+  document.getElementById('e-catalog-hint').textContent = q.trim()
+    ? filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + q + '"'
+    : filtered.length + ' total entries — type to filter';
+
+  // Build rows with rid selectors from current expanderKept
+  var rids = Object.keys(expanderKept);
+  var ridOptions = rids.length
+    ? '<select class="exp-cat-rid-sel" style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;max-width:200px;background:var(--surface)">' +
+        rids.map(function(rid) {
+          var row = document.getElementById(rid);
+          var label = row ? (row.querySelector('td:first-child') ? row.querySelector('td:first-child').textContent.trim() : rid) : rid;
+          return '<option value="' + rid + '">' + label.slice(0, 40) + '</option>';
+        }).join('') +
+      '</select>'
+    : '<span style="font-size:11px;color:var(--text-faint)">Run expander first</span>';
+
+  var html = filtered.slice(0, 200).map(function(s) {
+    var display = esc(s);
+    if (q.trim()) {
+      var idx = s.toLowerCase().indexOf(q.toLowerCase());
+      if (idx > -1) display = esc(s.slice(0,idx)) +
+        '<mark style="background:#fef9c3;border-radius:2px">' + esc(s.slice(idx,idx+q.length)) + '</mark>' +
+        esc(s.slice(idx+q.length));
+    }
+    return '<tr>' +
+      '<td class="mono" style="font-size:12px">' + display + '</td>' +
+      '<td style="white-space:nowrap">' +
+        (rids.length
+          ? '<select class="exp-cat-rid-sel" data-sku="' + esc(s) + '" style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;max-width:180px;background:var(--surface)">' +
+              rids.map(function(rid) {
+                var row = document.getElementById(rid);
+                var label = row ? (row.querySelector('td') ? row.querySelector('td').textContent.trim().slice(0,35) : rid) : rid;
+                return '<option value="' + rid + '">' + esc(label) + '</option>';
+              }).join('') +
+            '</select> ' +
+            '<button class="btn-sm exp-cat-apply" data-sku="' + esc(s) + '" style="font-size:10px;color:var(--accent)">→ Apply to row</button>'
+          : '<span style="font-size:11px;color:var(--text-faint)">Run expander first</span>') +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  document.getElementById('e-catalog-body').innerHTML = html || '<tr><td colspan="2" style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
+}
+
+var eCatalogSearchTimer = null;
+(document.getElementById('e-catalog-search') || {addEventListener:function(){}}).addEventListener('input', function(){
+  var val = this.value; clearTimeout(eCatalogSearchTimer);
+  eCatalogSearchTimer = setTimeout(function(){ renderExpanderCatalogSearch(val); }, 180);
+});
+(document.getElementById('e-catalog-clear-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  document.getElementById('e-catalog-search').value = '';
+  renderExpanderCatalogSearch('');
+});
+// Catalog search apply button delegation
+(document.getElementById('e-catalog-body') || {addEventListener:function(){}}).addEventListener('click', function(e) {
+  var btn = e.target;
+  if (!btn.classList.contains('exp-cat-apply')) return;
+  var sku = btn.getAttribute('data-sku');
+  var sel = btn.previousElementSibling;
+  if (!sel || !sku) return;
+  var rid = sel.value;
+  expanderApplyFromCatalog(rid, sku);
+});
+
+// ── Export (only kept rows) ────────────────────────────
 (document.getElementById('export-expander-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   if (!S.expandedRows) return;
   var today = new Date();
@@ -1586,14 +1753,16 @@ function expanderSetOverride(rid, keep) {
     if (!r.matches.length) {
       var rowId = 'er' + (rid++);
       if (!expanderKept[rowId]) return;
-      var finalSku = (window.expanderOverrides && window.expanderOverrides[rowId]) || '';
+      var ov = window.expanderOverrides[rowId] || '';
+      var finalSku = (ov === '__NOMATCH__') ? '' : ov;
       dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: finalSku,
         brand: finalSku ? finalSku.split(/[\s\-]/)[0].trim() : '', price: price });
     } else {
       r.matches.forEach(function(m) {
         var rowId = 'er' + (rid++);
         if (!expanderKept[rowId]) return;
-        var finalSku = (window.expanderOverrides && window.expanderOverrides[rowId]) || m.sku;
+        var ov = window.expanderOverrides[rowId] || '';
+        var finalSku = (ov === '__NOMATCH__') ? '' : (ov || m.sku);
         var brand = finalSku ? finalSku.split(/[\s\-]/)[0].trim() : '';
         dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: finalSku, brand: brand, price: price });
       });
@@ -1603,267 +1772,19 @@ function expanderSetOverride(rid, keep) {
   buildMappingXlsx(dataRows, dateStr, 'expanded_skus.xlsx');
 });
 
-
-// ── rowsToCatalogFull: parse col E (SKU ID) + col F (Product Name) ──
-function rowsToCatalogFull(rows) {
-  if (!rows || !rows.length) return [];
-  var skuCol = 4, nameCol = 5, headerRowIdx = 0;
-  for (var r = 0; r < Math.min(rows.length, 5); r++) {
-    var cells = rows[r].map(function(c){ return String(c||'').toLowerCase().trim(); });
-    for (var i = 0; i < cells.length; i++) {
-      if (cells[i] === 'internal sku id' || cells[i] === 'internal_sku_id' || cells[i] === 'internal sku') {
-        skuCol = i; headerRowIdx = r;
-      }
-      if (cells[i] === 'product name' || cells[i] === 'product_name') nameCol = i;
-    }
-  }
-  var seen = {}, out = [];
-  for (var i = headerRowIdx + 1; i < rows.length; i++) {
-    var row = rows[i]; if (!row) continue;
-    var sku = String(row[skuCol]||'').trim();
-    var name = String(row[nameCol]||'').trim();
-    if (!sku || seen[sku]) continue;
-    seen[sku] = true;
-    out.push({ sku: sku, productName: name || sku });
-  }
-  return out;
-}
-
-// ── Catalog search for Mapper ──────────────────────────
-function refreshMapperCatalogSearch() {
-  var hasCatalog = S.catalogSkus && S.catalogSkus.length;
-  document.getElementById('m-catalog-empty').style.display = hasCatalog ? 'none' : '';
-  document.getElementById('m-catalog-content').style.display = hasCatalog ? '' : 'none';
-  if (hasCatalog) renderMapperCatalogSearch(document.getElementById('m-catalog-search').value || '');
-}
-function renderMapperCatalogSearch(q) {
-  var skus = S.catalogSkus || [];
-  var filtered = q.trim() ? skus.filter(function(s){ return s.toLowerCase().indexOf(q.toLowerCase()) > -1; }) : skus;
-  document.getElementById('m-catalog-hint').textContent = q.trim()
-    ? filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + q + '"'
-    : filtered.length + ' total entries — type to filter';
-  var html = filtered.slice(0, 300).map(function(s){
-    var display = esc(s);
-    if (q.trim()) {
-      var idx = s.toLowerCase().indexOf(q.toLowerCase());
-      if (idx > -1) display = esc(s.slice(0,idx)) + '<mark style="background:#fef9c3;border-radius:2px">' + esc(s.slice(idx,idx+q.length)) + '</mark>' + esc(s.slice(idx+q.length));
-    }
-    return '<tr><td class="mono">' + display + '</td></tr>';
-  }).join('');
-  document.getElementById('m-catalog-body').innerHTML = html || '<tr><td style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
-}
-var mCatalogSearchTimer = null;
-(document.getElementById('m-catalog-search') || {addEventListener:function(){}}).addEventListener('input', function(){
-  var val = this.value; clearTimeout(mCatalogSearchTimer);
-  mCatalogSearchTimer = setTimeout(function(){ renderMapperCatalogSearch(val); }, 180);
-});
-(document.getElementById('m-catalog-clear-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
-  document.getElementById('m-catalog-search').value = ''; renderMapperCatalogSearch('');
-});
-
-// ── Endorsement mode ────────────────────────────────────
-function runEndorsement() {
-  try {
-    var merchantSkus = getMerchantSkus();
-    if (!merchantSkus.length) { alert('Please enter at least one merchant SKU.'); return; }
-    var taContract = document.getElementById('ta-contract');
-    if (taContract && !(slotData.contract && slotData.contract.rows)) {
-      S.contractData = textToContracts(taContract.value || '');
-    }
-    if (!S.contractData || !S.contractData.length) { alert('Please provide contract data.'); return; }
-    if (!S.catalogSkus || !S.catalogSkus.length) { alert('Please upload the Internal Catalog.'); return; }
-
-    var contractData = S.contractData;
-    var thresholdEl = document.getElementById('threshold');
-    var threshold = thresholdEl ? (parseInt(thresholdEl.value, 10) || 0) : 0;
-
-    // For each merchant SKU, sum contracts + find best internal SKU match
-    var rows = merchantSkus.map(function(sku) {
-      var st = tokContract(sku);
-      var matches = contractData.filter(function(d){ return matchesContract(st, tokContract(d.name)); });
-      var total = matches.reduce(function(s,d){ return s + d.contracts; }, 0);
-      // Find best internal SKU match
-      var best = null, bestScore = 0;
-      S.catalogSkus.forEach(function(internalSku) {
-        var s = smartScore(sku, internalSku);
-        if (s > bestScore) { bestScore = s; best = internalSku; }
-      });
-      return { sku: sku, total: total, internalSku: best || '', score: bestScore, price: S.merchantPrices[sku] || '' };
-    });
-
-    // Filter by threshold then sort by contracts descending
-    rows = rows.filter(function(r){ return r.total >= threshold; });
-    rows.sort(function(a, b){ return b.total - a.total; });
-    S.endorsementRows = rows;
-
-    var html = rows.map(function(r, i) {
-      var pct = Math.round(r.score * 100);
-      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
-      return '<tr>' +
-        '<td class="mono" style="color:var(--text-faint)">' + (i+1) + '</td>' +
-        '<td class="mono" style="font-weight:500">' + esc(r.sku) + '</td>' +
-        '<td class="mono">' + Math.round(r.total).toLocaleString() + '</td>' +
-        '<td class="mono" style="font-size:12px">' + esc(r.internalSku) + '</td>' +
-        '<td><span class="score-pill ' + sp + '">' + pct + '%</span></td>' +
-        '</tr>';
-    }).join('');
-
-    document.getElementById('endorsement-body').innerHTML = html || '<tr><td colspan="5" style="color:var(--text-faint);padding:1.5rem">No results above threshold.</td></tr>';
-    document.getElementById('endorsement-empty').style.display = 'none';
-    document.getElementById('endorsement-content').style.display = '';
-    document.getElementById('tc-endorsement').textContent = rows.length;
-  } catch(e) {
-    console.error('runEndorsement error:', e);
-    alert('Error: ' + e.message);
-  }
-}
-
-(document.getElementById('export-endorsement-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
-  if (!S.endorsementRows || !S.endorsementRows.length) return;
-  var today = new Date();
-  var dateStr = (today.getMonth()+1) + '/' + today.getDate() + '/' + today.getFullYear();
-  var dataRows = S.endorsementRows.map(function(r, idx) {
-    return { lineNum: idx+1, merchantSku: r.sku, bestMatch: r.internalSku,
-      brand: r.internalSku ? r.internalSku.split(/[\s\-]/)[0].trim() : '', price: r.price };
-  });
-  buildMappingXlsx(dataRows, dateStr, 'endorsements.xlsx');
-});
-
-// ── GMV mode ─────────────────────────────────────────────
-function rowsToGmv(rows) {
-  if (!rows || !rows.length) return [];
-  var modelCol = 0, gmvCol = 1, startRow = 0;
-  var first = rows[0].map(function(c){ return String(c||'').toLowerCase().trim(); });
-  if (/model|sku|name|product|gmv/i.test(first.join(' '))) startRow = 1;
-  first.forEach(function(h, i){
-    if (/model|sku|name|product/i.test(h)) modelCol = i;
-    if (/gmv|revenue|sales|amount/i.test(h)) gmvCol = i;
-  });
-  var out = [];
-  for (var i = startRow; i < rows.length; i++) {
-    var row = rows[i]; if (!row || row.length < 2) continue;
-    var model = String(row[modelCol]||'').trim();
-    var gmv = parseFloat(String(row[gmvCol]||'').replace(/[^0-9.]/g,''));
-    if (!model || isNaN(gmv)) continue;
-    out.push({ model: model, gmv: gmv });
-  }
-  return out.sort(function(a,b){ return b.gmv - a.gmv; });
-}
-
-function textToGmv(text) {
-  var lines = text.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
-  var startIdx = (lines.length && /model|gmv|name/i.test(lines[0])) ? 1 : 0;
-  var out = [];
-  for (var i = startIdx; i < lines.length; i++) {
-    var parts = lines[i].split(/,|\t/);
-    var model = (parts[0]||'').trim();
-    var gmv = parseFloat(String(parts[1]||'').replace(/[^0-9.]/g,''));
-    if (!model || isNaN(gmv)) continue;
-    out.push({ model: model, gmv: gmv });
-  }
-  return out.sort(function(a,b){ return b.gmv - a.gmv; });
-}
-
-function runGmv() {
-  try {
-    // GMV data comes from the 'sku' slot (reused as GMV file slot)
-    var taGmv = document.getElementById('ta-sku');
-    var gmvData = [];
-    if (slotData.sku && slotData.sku.rows) {
-      gmvData = rowsToGmv(slotData.sku.rows);
-    } else if (taGmv) {
-      gmvData = textToGmv(taGmv.value || '');
-    }
-    if (!gmvData.length) { alert('Please upload or paste the GMV data.'); return; }
-    if (!S.catalogProductNames || !S.catalogProductNames.length) { alert('Please upload the Internal Catalog.'); return; }
-
-    var top30 = gmvData.slice(0, 30);
-
-    var resultRows = top30.map(function(item) {
-      // Match model → catalog Product Name (col F) via fuzzy score
-      var best = null, bestScore = 0;
-      S.catalogProductNames.forEach(function(cat) {
-        var s = Math.max(smartScore(item.model, cat.sku), smartScore(item.model, cat.productName));
-        if (s > bestScore) { bestScore = s; best = cat; }
-      });
-      return { model: item.model, gmv: item.gmv, productName: best ? best.productName : '', score: bestScore };
-    });
-
-    S.gmvRows = resultRows;
-
-    var fmt = new Intl.NumberFormat();
-    var html = resultRows.map(function(r, i) {
-      var pct = Math.round(r.score * 100);
-      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
-      return '<tr>' +
-        '<td class="mono" style="font-weight:500;color:var(--accent)">' + (i+1) + '</td>' +
-        '<td class="mono">' + esc(r.model) + '</td>' +
-        '<td class="mono">' + fmt.format(Math.round(r.gmv)) + '</td>' +
-        '<td style="font-size:12px">' + esc(r.productName) + '</td>' +
-        '<td><span class="score-pill ' + sp + '">' + pct + '%</span></td>' +
-        '</tr>';
-    }).join('');
-
-    document.getElementById('gmv-body').innerHTML = html || '<tr><td colspan="5" style="color:var(--text-faint);padding:1.5rem">No data.</td></tr>';
-    document.getElementById('gmv-empty').style.display = 'none';
-    document.getElementById('gmv-content').style.display = '';
-    document.getElementById('tc-gmv').textContent = resultRows.length;
-  } catch(e) {
-    console.error('runGmv error:', e);
-    alert('Error: ' + e.message);
-  }
-}
-
-(document.getElementById('export-gmv-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
-  if (!S.gmvRows || !S.gmvRows.length) return;
-  var rows = [['Rank','Model','GMV','Product Name (Catalog)','Match Score %']];
-  S.gmvRows.forEach(function(r, i){
-    rows.push([i+1, r.model, Math.round(r.gmv), r.productName, Math.round(r.score*100)]);
-  });
-  var wb = XLSX.utils.book_new();
-  var ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:6},{wch:36},{wch:16},{wch:36},{wch:12}];
-  XLSX.utils.book_append_sheet(wb, ws, 'Top 30 GMV');
-  XLSX.writeFile(wb, 'top30_gmv.xlsx');
-});
-
-// ── Expander confirmation: keep/remove per row ─────────
-var expanderKept = {};  // rid → true/false
-
-function expanderToggleRow(rid, keep) {
-  expanderKept[rid] = keep;
-  var row = document.getElementById(rid);
-  if (row) {
-    row.style.opacity = keep ? '1' : '0.4';
-    row.style.background = keep ? '' : 'var(--red-bg)';
-    // Update button weights
-    var btns = row.querySelectorAll('td:last-child .btn-sm');
-    if (btns[0]) btns[0].style.fontWeight = keep ? '700' : '400';  // Keep btn
-    if (btns[1]) btns[1].style.fontWeight = keep ? '400' : '700';  // Remove btn
-  }
-  updateExpanderKeptCount();
-}
-
-function updateExpanderKeptCount() {
-  var kept = Object.keys(expanderKept).filter(function(k){ return expanderKept[k]; }).length;
-  var total = Object.keys(expanderKept).length;
-  var el = document.getElementById('expander-kept-count');
-  if (el) el.textContent = kept + ' of ' + total + ' rows kept for export';
-}
-
 (document.getElementById('expander-select-all-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   Object.keys(expanderKept).forEach(function(k){ expanderToggleRow(k, true); });
 });
 (document.getElementById('expander-remove-all-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   Object.keys(expanderKept).forEach(function(k){ expanderToggleRow(k, false); });
 });
-
 // ── Init ───────────────────────────────────────────────
 buildSidebar('contracts');
 document.getElementById('view-contracts').style.display = '';
 document.getElementById('view-mapper').style.display = 'none';
 document.getElementById('view-expander').style.display = 'none';
 document.getElementById('view-endorsement').style.display = 'none';
+initExpanderEvents();
 document.getElementById('view-gmv').style.display = 'none';
 S.expandedRows = null;
 
