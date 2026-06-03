@@ -267,6 +267,20 @@
           <span class="mode-desc">Expand general SKUs to all colorways</span>
         </span>
       </button>
+      <button class="mode-btn" data-mode="endorsement">
+        <span class="mode-icon">📋</span>
+        <span class="mode-text">
+          <span class="mode-title">Merchant SKU Endorsements</span>
+          <span class="mode-desc">Rank SKUs by contract count</span>
+        </span>
+      </button>
+      <button class="mode-btn" data-mode="gmv">
+        <span class="mode-icon">🏆</span>
+        <span class="mode-text">
+          <span class="mode-title">Top 30 SKUs for Ranking</span>
+          <span class="mode-desc">Top SKUs by GMV matched to catalog</span>
+        </span>
+      </button>
     </div>
   </div>
 
@@ -290,9 +304,8 @@
   <!-- Contracts mode -->
   <div id="view-contracts">
     <div class="tabs-bar">
-      <button class="tab-btn active" data-tab="c-analysis">Analysis <span class="tc" id="tc-analysis">—</span></button>
+      <button class="tab-btn active" data-tab="c-analysis">Deliver-to-Home SKU Recommendations <span class="tc" id="tc-analysis">—</span></button>
       <button class="tab-btn" data-tab="c-explorer">Contract Explorer</button>
-      <button class="tab-btn" data-tab="c-recs">Recommendations <span class="tc" id="tc-recs">—</span></button>
       <button class="tab-btn" data-tab="c-catalog">Catalog Search</button>
     </div>
 
@@ -316,6 +329,22 @@
       </div>
     </div>
 
+    <!-- Catalog Search tab in Contracts mode -->
+    <div class="tab-panel" id="tab-c-catalog">
+      <div class="empty" id="c-catalog-empty"><div class="e-icon">🔍</div>Upload Internal Catalog first, then search.</div>
+      <div id="c-catalog-content" style="display:none">
+        <div class="search-row">
+          <input type="text" class="search-input" id="c-catalog-search" placeholder='Search catalog e.g. "iPad Air", "128GB", "Starlight"'>
+          <button class="btn-sm" id="c-catalog-clear-btn">Clear</button>
+        </div>
+        <div class="search-hint" id="c-catalog-hint"></div>
+        <div class="tbl-wrap">
+          <table><thead><tr><th>Internal SKU ID</th></tr></thead>
+          <tbody id="c-catalog-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
     <!-- Explorer tab — NO Internal SKU column -->
     <div class="tab-panel" id="tab-c-explorer">
       <div class="empty" id="c-explorer-empty"><div class="e-icon">🔍</div>Upload Contract Data first, then search.</div>
@@ -332,20 +361,7 @@
       </div>
     </div>
 
-    <!-- Recs tab -->
-    <div class="tab-panel" id="tab-c-recs">
-      <div class="empty" id="recs-empty"><div class="e-icon">📦</div>Run Analysis to see recommended additions.</div>
-      <div id="recs-content" style="display:none">
-        <div class="section-hdr">
-          <h2>Recommended additions</h2>
-          <button class="btn-sm" id="export-recs-btn">↓ Export</button>
-        </div>
-        <div class="tbl-wrap">
-          <table><thead><tr><th>SKU</th><th>Contracts</th><th></th></tr></thead>
-          <tbody id="rec-body"></tbody></table>
-        </div>
-      </div>
-    </div>
+
 
   </div>
 
@@ -355,6 +371,7 @@
       <!-- Single combined tab replacing the old two tabs -->
       <button class="tab-btn active" data-tab="m-main">SKU Mapping <span class="tc" id="tc-mapper">—</span></button>
       <button class="tab-btn" data-tab="m-explorer">Catalog Explorer</button>
+      <button class="tab-btn" data-tab="m-catalog">Catalog Search</button>
     </div>
 
     <!-- Combined SKU Mapping + Unmatched tab -->
@@ -392,22 +409,22 @@
         </div>
       </div>
     </div>
-    <!-- Catalog Explorer tab in Contracts mode -->
-    <div class="tab-panel" id="tab-c-catalog">
-      <div class="empty" id="c-catalog-empty"><div class="e-icon">🔍</div>Upload Internal Catalog first, then search.</div>
-      <div id="c-catalog-content" style="display:none">
+
+    <!-- Catalog Search tab in Mapper -->
+    <div class="tab-panel" id="tab-m-catalog">
+      <div class="empty" id="m-catalog-empty"><div class="e-icon">🔍</div>Upload Internal Catalog first, then search.</div>
+      <div id="m-catalog-content" style="display:none">
         <div class="search-row">
-          <input type="text" class="search-input" id="c-catalog-search" placeholder='Search catalog e.g. "iPad Air", "128GB", "Starlight"'>
-          <button class="btn-sm" id="c-catalog-clear-btn">Clear</button>
+          <input type="text" class="search-input" id="m-catalog-search" placeholder='Search catalog e.g. "iPad Air", "128GB", "Starlight"'>
+          <button class="btn-sm" id="m-catalog-clear-btn">Clear</button>
         </div>
-        <div class="search-hint" id="c-catalog-hint"></div>
+        <div class="search-hint" id="m-catalog-hint"></div>
         <div class="tbl-wrap">
           <table><thead><tr><th>Internal SKU ID</th></tr></thead>
-          <tbody id="c-catalog-body"></tbody></table>
+          <tbody id="m-catalog-body"></tbody></table>
         </div>
       </div>
     </div>
-
   </div>
 
   <!-- Expander mode -->
@@ -425,8 +442,56 @@
         </div>
         <div class="tbl-wrap">
           <table><thead><tr>
-            <th>Merchant SKU</th><th>Matched Internal SKUs (all colorways)</th><th>Count</th>
+            <th>Merchant SKU</th><th>Matched Internal SKUs (all colorways)</th><th>Count</th><th>Action</th>
           </tr></thead><tbody id="expander-body"></tbody></table>
+        </div>
+        <div style="margin-top:.75rem;display:flex;gap:8px;align-items:center">
+          <button class="btn-sm" id="expander-select-all-btn">✓ Keep All</button>
+          <button class="btn-sm" id="expander-remove-all-btn">✗ Remove All</button>
+          <span id="expander-kept-count" style="font-size:11px;color:var(--text-muted)"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Endorsement mode -->
+  <div id="view-endorsement" style="display:none">
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="en-main">Merchant SKU Endorsements <span class="tc" id="tc-endorsement">—</span></button>
+    </div>
+    <div class="tab-panel active" id="tab-en-main">
+      <div class="empty" id="endorsement-empty"><div class="e-icon">📋</div>Upload Merchant SKUs + Contract Data + Internal Catalog, then run.</div>
+      <div id="endorsement-content" style="display:none">
+        <div class="section-hdr">
+          <h2>SKU Endorsements — ranked by contracts</h2>
+          <button class="btn-sm" id="export-endorsement-btn">↓ Export XLSX</button>
+        </div>
+        <div class="tbl-wrap">
+          <table><thead><tr>
+            <th>#</th><th>Merchant SKU</th><th>Contracts</th><th>Internal SKU ID</th><th>Score</th>
+          </tr></thead><tbody id="endorsement-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GMV mode -->
+  <div id="view-gmv" style="display:none">
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="g-main">Top 30 by GMV <span class="tc" id="tc-gmv">—</span></button>
+    </div>
+    <div class="tab-panel active" id="tab-g-main">
+      <div class="empty" id="gmv-empty"><div class="e-icon">🏆</div>Upload GMV file + Internal Catalog, then run.</div>
+      <div id="gmv-content" style="display:none">
+        <div class="section-hdr">
+          <h2>Top 30 SKUs by GMV</h2>
+          <button class="btn-sm" id="export-gmv-btn">↓ Export</button>
+        </div>
+        <div class="tbl-wrap">
+          <table><thead><tr>
+            <th>Rank</th><th>Model</th><th>GMV</th><th>Product Name (Catalog)</th><th>Score</th>
+          </tr></thead><tbody id="gmv-body"></tbody></table>
         </div>
       </div>
     </div>
@@ -449,7 +514,8 @@ var S = {
   analysis: null,
   mapping: [],
   expandedRows: null,
-  merchantPrices: {}
+  merchantPrices: {},
+  catalogProductNames: []  // [{sku, productName}] from col E+F
 };
 
 var SLOTS = {
@@ -465,6 +531,15 @@ var SLOTS = {
   expander: [
     { id: 'sku',     label: 'Merchant SKUs',   req: true, accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line — color-agnostic\niPad Air M3 11inch 128GB WiFi\nHonor Pad X9A 6GB/128GB' },
     { id: 'catalog', label: 'Internal Catalog', req: true, accept: '.csv,.tsv,.txt,.xlsx', ph: 'Excel with Internal SKU ID in col E' }
+  ],
+  endorsement: [
+    { id: 'sku',      label: 'Merchant SKUs',   req: true,  accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line' },
+    { id: 'contract', label: 'Contract Data',   req: true,  accept: '.csv,.tsv,.txt,.xlsx', ph: 'model,contracts\nVivo V70 FE 8+256,409' },
+    { id: 'catalog',  label: 'Internal Catalog',req: true,  accept: '.csv,.tsv,.txt,.xlsx', ph: 'Excel with Internal SKU ID in col E' }
+  ],
+  gmv: [
+    { id: 'sku',     label: 'GMV File',         req: true, accept: '.csv,.txt,.tsv,.xlsx', ph: 'Col A: Model name\nCol B: GMV value' },
+    { id: 'catalog', label: 'Internal Catalog', req: true, accept: '.csv,.tsv,.txt,.xlsx', ph: 'Excel with Internal SKU ID in col E, Product Name in col F' }
   ]
 };
 
@@ -791,7 +866,7 @@ function buildSidebar(mode) {
     section.appendChild(div);
     wireSlot(slot.id);
   });
-  document.getElementById('settings-block').style.display = mode === 'contracts' ? '' : 'none';
+  document.getElementById('settings-block').style.display = (mode === 'contracts' || mode === 'endorsement') ? '' : 'none';
 }
 
 function wireSlot(slotId) {
@@ -816,9 +891,11 @@ function wireSlot(slotId) {
       } else if (slotId === 'catalog') {
         S.catalogData = result.rows ? rowsToCatalog(result.rows) : textToCatalog(result.text || '');
         S.catalogSkus = result.rows ? rowsToCatalogSkus(result.rows) : textToCatalogSkus(result.text || '');
+        S.catalogProductNames = result.rows ? rowsToCatalogFull(result.rows) : [];
         invalidateCatalogCache();
         refreshCatalogExplorer();
         refreshContractCatalogExplorer();
+        refreshMapperCatalogSearch();
       } else if (slotId === 'sku' && result.rows) {
         ta.value = rowsToSkus(result.rows).join('\n');
       } else if (slotId === 'sku') {
@@ -832,7 +909,7 @@ function wireSlot(slotId) {
     fi.value = ''; slotData[slotId] = { rows: null, text: '' };
     if (ta) ta.value = '';
     if (slotId === 'contract') { S.contractData = []; refreshContractExplorer(); }
-    if (slotId === 'catalog') { S.catalogData = []; S.catalogSkus = []; invalidateCatalogCache(); refreshCatalogExplorer(); }
+    if (slotId === 'catalog') { S.catalogData = []; S.catalogSkus = []; S.catalogProductNames = []; invalidateCatalogCache(); refreshCatalogExplorer(); refreshContractCatalogExplorer(); refreshMapperCatalogSearch(); }
   });
   if (ta) {
     ta.addEventListener('input', function(){
@@ -858,6 +935,8 @@ document.querySelectorAll('.mode-btn').forEach(function(btn){
     document.getElementById('view-contracts').style.display = m === 'contracts' ? '' : 'none';
     document.getElementById('view-mapper').style.display = m === 'mapper' ? '' : 'none';
     document.getElementById('view-expander').style.display = m === 'expander' ? '' : 'none';
+    document.getElementById('view-endorsement').style.display = m === 'endorsement' ? '' : 'none';
+    document.getElementById('view-gmv').style.display = m === 'gmv' ? '' : 'none';
     buildSidebar(m);
   });
 });
@@ -908,12 +987,12 @@ function renderContractExplorer(q) {
 }
 
 var explorerSearchTimer = null;
-document.getElementById('c-explorer-search').addEventListener('input', function(){
+(document.getElementById('c-explorer-search') || {addEventListener:function(){}}).addEventListener('input', function(){
   var val = this.value;
   clearTimeout(explorerSearchTimer);
   explorerSearchTimer = setTimeout(function(){ renderContractExplorer(val); }, 180);
 });
-document.getElementById('c-explorer-clear-btn').addEventListener('click', function(){
+(document.getElementById('c-explorer-clear-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   document.getElementById('c-explorer-search').value = '';
   renderContractExplorer('');
 });
@@ -951,21 +1030,23 @@ function renderCatalogExplorer(q) {
 }
 
 var catalogSearchTimer = null;
-document.getElementById('m-explorer-search').addEventListener('input', function(){
+(document.getElementById('m-explorer-search') || {addEventListener:function(){}}).addEventListener('input', function(){
   var val = this.value;
   clearTimeout(catalogSearchTimer);
   catalogSearchTimer = setTimeout(function(){ renderCatalogExplorer(val); }, 180);
 });
-document.getElementById('m-explorer-clear-btn').addEventListener('click', function(){
+(document.getElementById('m-explorer-clear-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   document.getElementById('m-explorer-search').value = '';
   renderCatalogExplorer('');
 });
 
 // ── Run ────────────────────────────────────────────────
-document.getElementById('run-btn').addEventListener('click', function(){
+(document.getElementById('run-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   if (S.mode === 'contracts') runContracts();
   else if (S.mode === 'mapper') runMapper();
   else if (S.mode === 'expander') runExpander();
+  else if (S.mode === 'endorsement') runEndorsement();
+  else if (S.mode === 'gmv') runGmv();
 });
 
 function getMerchantSkus() {
@@ -1209,7 +1290,7 @@ function esc(s){ var d=document.createElement('div'); d.textContent=String(s); r
 function escCsv(v){ var s=String(v); return (s.indexOf(',')>-1||s.indexOf('"')>-1||s.indexOf('\n')>-1)?'"'+s.replace(/"/g,'""')+'"':s; }
 function dlCsv(name, rows){ var blob=new Blob([rows.map(function(r){return r.map(escCsv).join(',');}).join('\n')],{type:'text/csv;charset=utf-8;'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
 
-document.getElementById('export-analysis-btn').addEventListener('click', function(){
+(document.getElementById('export-analysis-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   if (!S.analysis) return;
   var rows = [['Merchant SKU','Total Contracts','Status','Match Note','Variants','Internal SKU','Score %']];
   S.analysis.submitted.forEach(function(r){
@@ -1221,14 +1302,6 @@ document.getElementById('export-analysis-btn').addEventListener('click', functio
     ]);
   });
   dlCsv('analysis.csv', rows);
-});
-document.getElementById('export-recs-btn').addEventListener('click', function(){
-  if (!S.analysis || !S.analysis.recRows) return;
-  var rows = [['SKU','Contracts']];
-  S.analysis.recRows.forEach(function(r){
-    rows.push([r.name, Math.round(r.contracts)]);
-  });
-  dlCsv('recommendations.csv', rows);
 });
 // ── Shared XLSX export helper ──────────────────────────
 function buildMappingXlsx(dataRows, dateStr, filename) {
@@ -1263,7 +1336,7 @@ function buildMappingXlsx(dataRows, dateStr, filename) {
   XLSX.writeFile(wb, filename);
 }
 
-document.getElementById('export-mapper-btn').addEventListener('click', function(){
+(document.getElementById('export-mapper-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   if (!S.mapping.length) return;
 
   var today = new Date();
@@ -1322,12 +1395,12 @@ function renderContractCatalogExplorer(q) {
 }
 
 var cCatalogSearchTimer = null;
-document.getElementById('c-catalog-search').addEventListener('input', function(){
+(document.getElementById('c-catalog-search') || {addEventListener:function(){}}).addEventListener('input', function(){
   var val = this.value;
   clearTimeout(cCatalogSearchTimer);
   cCatalogSearchTimer = setTimeout(function(){ renderContractCatalogExplorer(val); }, 180);
 });
-document.getElementById('c-catalog-clear-btn').addEventListener('click', function(){
+(document.getElementById('c-catalog-clear-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
   document.getElementById('c-catalog-search').value = '';
   renderContractCatalogExplorer('');
 });
@@ -1386,26 +1459,43 @@ function runExpander() {
     expandedRows.length + ' merchant SKUs expanded → ' + totalMatches + ' internal SKU variants found' +
     (noMatchCount ? ' · ' + noMatchCount + ' with no match' : '');
 
+  // Reset kept state
+  expanderKept = {};
+
   var html = expandedRows.map(function(r) {
     if (!r.matches.length) {
-      return '<tr>' +
+      var key = r.merchantSku + '|||__none__';
+      expanderKept[key] = false;
+      return '<tr data-ekey="' + esc(key) + '" style="opacity:0.35">' +
         '<td class="mono" style="font-weight:500;color:var(--red)">' + esc(r.merchantSku) + '</td>' +
         '<td colspan="2"><span class="badge b-gray">No matches found</span></td>' +
+        '<td><button class="btn-sm e-keep-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',true)" style="color:var(--green)">✓ Keep</button>' +
+        '<button class="btn-sm e-remove-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',false)" style="color:var(--red);font-weight:700;margin-left:3px">✗ Remove</button></td>' +
         '</tr>';
     }
-    var skuList = r.matches.map(function(m) {
+    return r.matches.map(function(m) {
+      var key = r.merchantSku + '|||' + m.sku;
+      expanderKept[key] = true;
       var pct = Math.round(m.score * 100);
       var sp = pct >= 80 ? 'sp-high' : pct >= 60 ? 'sp-mid' : 'sp-low';
-      return '<div class="candidate" style="padding:2px 0">' +
-        '<span class="c-name" style="font-family:var(--mono);font-size:12px;color:var(--text)">' + esc(m.sku) + '</span>' +
-        '<span class="score-pill ' + sp + '">' + pct + '%</span>' +
-        '</div>';
+      // Override textbox
+      var overrideId = 'ov-' + key.replace(/[^a-z0-9]/gi,'_');
+      return '<tr data-ekey="' + esc(key) + '">' +
+        '<td class="mono" style="font-weight:500;vertical-align:middle">' + esc(r.merchantSku) + '</td>' +
+        '<td style="vertical-align:middle">' +
+          '<span class="mono" style="font-size:12px">' + esc(m.sku) + '</span>' +
+          '<span class="score-pill ' + sp + '" style="margin-left:6px">' + pct + '%</span>' +
+          '<div style="margin-top:4px"><input type="text" id="' + overrideId + '" placeholder="Override match..." ' +
+            'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;width:100%;max-width:280px;background:var(--bg)" ' +
+            'onchange="expanderOverride(' + JSON.stringify(key) + ',this.value)"></div>' +
+        '</td>' +
+        '<td class="mono" style="vertical-align:middle;color:var(--text-muted)">1</td>' +
+        '<td style="vertical-align:middle;white-space:nowrap">' +
+          '<button class="btn-sm e-keep-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',true)" style="color:var(--green);font-weight:700">✓ Keep</button>' +
+          '<button class="btn-sm e-remove-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',false)" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
+        '</td>' +
+        '</tr>';
     }).join('');
-    return '<tr>' +
-      '<td class="mono" style="font-weight:500;vertical-align:top">' + esc(r.merchantSku) + '</td>' +
-      '<td>' + skuList + '</td>' +
-      '<td class="mono" style="vertical-align:top;color:var(--text-muted)">' + r.matches.length + '</td>' +
-      '</tr>';
   }).join('');
 
   document.getElementById('expander-body').innerHTML = html;
@@ -1414,28 +1504,297 @@ function runExpander() {
   document.getElementById('tc-expander').textContent = totalMatches;
 }
 
-document.getElementById('export-expander-btn').addEventListener('click', function(){
-  if (!S.expandedRows) return;
+// Override a specific row's internal SKU match
+function expanderOverride(key, newVal) {
+  if (newVal.trim()) {
+    // Store override so export uses it
+    if (!window.expanderOverrides) window.expanderOverrides = {};
+    window.expanderOverrides[key] = newVal.trim();
+  }
+}
 
+(document.getElementById('export-expander-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  if (!S.expandedRows) return;
   var today = new Date();
   var dateStr = (today.getMonth()+1) + '/' + today.getDate() + '/' + today.getFullYear();
-
-  // One row per expanded match (each colorway gets its own row)
   var dataRows = [];
   var lineNum = 1;
   S.expandedRows.forEach(function(r) {
     var price = S.merchantPrices[r.merchantSku] || '';
     if (!r.matches.length) {
-      dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: '', brand: '', price: price });
+      var key = r.merchantSku + '|||__none__';
+      if (expanderKept[key] === false) return;
+      var override = window.expanderOverrides && window.expanderOverrides[key];
+      var finalSku = override || '';
+      dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: finalSku,
+        brand: finalSku ? finalSku.split(/[\s\-]/)[0].trim() : '', price: price });
     } else {
       r.matches.forEach(function(m) {
-        var brand = m.sku ? m.sku.split(/[\s\-]/)[0].trim() : '';
-        dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: m.sku, brand: brand, price: price });
+        var key = r.merchantSku + '|||' + m.sku;
+        if (expanderKept[key] === false) return;
+        var override = window.expanderOverrides && window.expanderOverrides[key];
+        var finalSku = override || m.sku;
+        var brand = finalSku ? finalSku.split(/[\s\-]/)[0].trim() : '';
+        dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: finalSku, brand: brand, price: price });
       });
     }
   });
-
+  if (!dataRows.length) { alert('No rows kept for export. Use ✓ Keep to select rows.'); return; }
   buildMappingXlsx(dataRows, dateStr, 'expanded_skus.xlsx');
+});
+
+
+// ── rowsToCatalogFull: parse col E (SKU ID) + col F (Product Name) ──
+function rowsToCatalogFull(rows) {
+  if (!rows || !rows.length) return [];
+  var skuCol = 4, nameCol = 5, headerRowIdx = 0;
+  for (var r = 0; r < Math.min(rows.length, 5); r++) {
+    var cells = rows[r].map(function(c){ return String(c||'').toLowerCase().trim(); });
+    for (var i = 0; i < cells.length; i++) {
+      if (cells[i] === 'internal sku id' || cells[i] === 'internal_sku_id' || cells[i] === 'internal sku') {
+        skuCol = i; headerRowIdx = r;
+      }
+      if (cells[i] === 'product name' || cells[i] === 'product_name') nameCol = i;
+    }
+  }
+  var seen = {}, out = [];
+  for (var i = headerRowIdx + 1; i < rows.length; i++) {
+    var row = rows[i]; if (!row) continue;
+    var sku = String(row[skuCol]||'').trim();
+    var name = String(row[nameCol]||'').trim();
+    if (!sku || seen[sku]) continue;
+    seen[sku] = true;
+    out.push({ sku: sku, productName: name || sku });
+  }
+  return out;
+}
+
+// ── Catalog search for Mapper ──────────────────────────
+function refreshMapperCatalogSearch() {
+  var hasCatalog = S.catalogSkus && S.catalogSkus.length;
+  document.getElementById('m-catalog-empty').style.display = hasCatalog ? 'none' : '';
+  document.getElementById('m-catalog-content').style.display = hasCatalog ? '' : 'none';
+  if (hasCatalog) renderMapperCatalogSearch(document.getElementById('m-catalog-search').value || '');
+}
+function renderMapperCatalogSearch(q) {
+  var skus = S.catalogSkus || [];
+  var filtered = q.trim() ? skus.filter(function(s){ return s.toLowerCase().indexOf(q.toLowerCase()) > -1; }) : skus;
+  document.getElementById('m-catalog-hint').textContent = q.trim()
+    ? filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + q + '"'
+    : filtered.length + ' total entries — type to filter';
+  var html = filtered.slice(0, 300).map(function(s){
+    var display = esc(s);
+    if (q.trim()) {
+      var idx = s.toLowerCase().indexOf(q.toLowerCase());
+      if (idx > -1) display = esc(s.slice(0,idx)) + '<mark style="background:#fef9c3;border-radius:2px">' + esc(s.slice(idx,idx+q.length)) + '</mark>' + esc(s.slice(idx+q.length));
+    }
+    return '<tr><td class="mono">' + display + '</td></tr>';
+  }).join('');
+  document.getElementById('m-catalog-body').innerHTML = html || '<tr><td style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
+}
+var mCatalogSearchTimer = null;
+(document.getElementById('m-catalog-search') || {addEventListener:function(){}}).addEventListener('input', function(){
+  var val = this.value; clearTimeout(mCatalogSearchTimer);
+  mCatalogSearchTimer = setTimeout(function(){ renderMapperCatalogSearch(val); }, 180);
+});
+(document.getElementById('m-catalog-clear-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  document.getElementById('m-catalog-search').value = ''; renderMapperCatalogSearch('');
+});
+
+// ── Endorsement mode ────────────────────────────────────
+function runEndorsement() {
+  try {
+    var merchantSkus = getMerchantSkus();
+    if (!merchantSkus.length) { alert('Please enter at least one merchant SKU.'); return; }
+    var taContract = document.getElementById('ta-contract');
+    if (taContract && !(slotData.contract && slotData.contract.rows)) {
+      S.contractData = textToContracts(taContract.value || '');
+    }
+    if (!S.contractData || !S.contractData.length) { alert('Please provide contract data.'); return; }
+    if (!S.catalogSkus || !S.catalogSkus.length) { alert('Please upload the Internal Catalog.'); return; }
+
+    var contractData = S.contractData;
+    var thresholdEl = document.getElementById('threshold');
+    var threshold = thresholdEl ? (parseInt(thresholdEl.value, 10) || 0) : 0;
+
+    // For each merchant SKU, sum contracts + find best internal SKU match
+    var rows = merchantSkus.map(function(sku) {
+      var st = tokContract(sku);
+      var matches = contractData.filter(function(d){ return matchesContract(st, tokContract(d.name)); });
+      var total = matches.reduce(function(s,d){ return s + d.contracts; }, 0);
+      // Find best internal SKU match
+      var best = null, bestScore = 0;
+      S.catalogSkus.forEach(function(internalSku) {
+        var s = smartScore(sku, internalSku);
+        if (s > bestScore) { bestScore = s; best = internalSku; }
+      });
+      return { sku: sku, total: total, internalSku: best || '', score: bestScore, price: S.merchantPrices[sku] || '' };
+    });
+
+    // Filter by threshold then sort by contracts descending
+    rows = rows.filter(function(r){ return r.total >= threshold; });
+    rows.sort(function(a, b){ return b.total - a.total; });
+    S.endorsementRows = rows;
+
+    var html = rows.map(function(r, i) {
+      var pct = Math.round(r.score * 100);
+      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
+      return '<tr>' +
+        '<td class="mono" style="color:var(--text-faint)">' + (i+1) + '</td>' +
+        '<td class="mono" style="font-weight:500">' + esc(r.sku) + '</td>' +
+        '<td class="mono">' + Math.round(r.total).toLocaleString() + '</td>' +
+        '<td class="mono" style="font-size:12px">' + esc(r.internalSku) + '</td>' +
+        '<td><span class="score-pill ' + sp + '">' + pct + '%</span></td>' +
+        '</tr>';
+    }).join('');
+
+    document.getElementById('endorsement-body').innerHTML = html || '<tr><td colspan="5" style="color:var(--text-faint);padding:1.5rem">No results above threshold.</td></tr>';
+    document.getElementById('endorsement-empty').style.display = 'none';
+    document.getElementById('endorsement-content').style.display = '';
+    document.getElementById('tc-endorsement').textContent = rows.length;
+  } catch(e) {
+    console.error('runEndorsement error:', e);
+    alert('Error: ' + e.message);
+  }
+}
+
+(document.getElementById('export-endorsement-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  if (!S.endorsementRows || !S.endorsementRows.length) return;
+  var today = new Date();
+  var dateStr = (today.getMonth()+1) + '/' + today.getDate() + '/' + today.getFullYear();
+  var dataRows = S.endorsementRows.map(function(r, idx) {
+    return { lineNum: idx+1, merchantSku: r.sku, bestMatch: r.internalSku,
+      brand: r.internalSku ? r.internalSku.split(/[\s\-]/)[0].trim() : '', price: r.price };
+  });
+  buildMappingXlsx(dataRows, dateStr, 'endorsements.xlsx');
+});
+
+// ── GMV mode ─────────────────────────────────────────────
+function rowsToGmv(rows) {
+  if (!rows || !rows.length) return [];
+  var modelCol = 0, gmvCol = 1, startRow = 0;
+  var first = rows[0].map(function(c){ return String(c||'').toLowerCase().trim(); });
+  if (/model|sku|name|product|gmv/i.test(first.join(' '))) startRow = 1;
+  first.forEach(function(h, i){
+    if (/model|sku|name|product/i.test(h)) modelCol = i;
+    if (/gmv|revenue|sales|amount/i.test(h)) gmvCol = i;
+  });
+  var out = [];
+  for (var i = startRow; i < rows.length; i++) {
+    var row = rows[i]; if (!row || row.length < 2) continue;
+    var model = String(row[modelCol]||'').trim();
+    var gmv = parseFloat(String(row[gmvCol]||'').replace(/[^0-9.]/g,''));
+    if (!model || isNaN(gmv)) continue;
+    out.push({ model: model, gmv: gmv });
+  }
+  return out.sort(function(a,b){ return b.gmv - a.gmv; });
+}
+
+function textToGmv(text) {
+  var lines = text.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  var startIdx = (lines.length && /model|gmv|name/i.test(lines[0])) ? 1 : 0;
+  var out = [];
+  for (var i = startIdx; i < lines.length; i++) {
+    var parts = lines[i].split(/,|\t/);
+    var model = (parts[0]||'').trim();
+    var gmv = parseFloat(String(parts[1]||'').replace(/[^0-9.]/g,''));
+    if (!model || isNaN(gmv)) continue;
+    out.push({ model: model, gmv: gmv });
+  }
+  return out.sort(function(a,b){ return b.gmv - a.gmv; });
+}
+
+function runGmv() {
+  try {
+    // GMV data comes from the 'sku' slot (reused as GMV file slot)
+    var taGmv = document.getElementById('ta-sku');
+    var gmvData = [];
+    if (slotData.sku && slotData.sku.rows) {
+      gmvData = rowsToGmv(slotData.sku.rows);
+    } else if (taGmv) {
+      gmvData = textToGmv(taGmv.value || '');
+    }
+    if (!gmvData.length) { alert('Please upload or paste the GMV data.'); return; }
+    if (!S.catalogProductNames || !S.catalogProductNames.length) { alert('Please upload the Internal Catalog.'); return; }
+
+    var top30 = gmvData.slice(0, 30);
+
+    var resultRows = top30.map(function(item) {
+      // Match model → catalog Product Name (col F) via fuzzy score
+      var best = null, bestScore = 0;
+      S.catalogProductNames.forEach(function(cat) {
+        var s = Math.max(smartScore(item.model, cat.sku), smartScore(item.model, cat.productName));
+        if (s > bestScore) { bestScore = s; best = cat; }
+      });
+      return { model: item.model, gmv: item.gmv, productName: best ? best.productName : '', score: bestScore };
+    });
+
+    S.gmvRows = resultRows;
+
+    var fmt = new Intl.NumberFormat();
+    var html = resultRows.map(function(r, i) {
+      var pct = Math.round(r.score * 100);
+      var sp = pct >= 70 ? 'sp-high' : pct >= 45 ? 'sp-mid' : 'sp-low';
+      return '<tr>' +
+        '<td class="mono" style="font-weight:500;color:var(--accent)">' + (i+1) + '</td>' +
+        '<td class="mono">' + esc(r.model) + '</td>' +
+        '<td class="mono">' + fmt.format(Math.round(r.gmv)) + '</td>' +
+        '<td style="font-size:12px">' + esc(r.productName) + '</td>' +
+        '<td><span class="score-pill ' + sp + '">' + pct + '%</span></td>' +
+        '</tr>';
+    }).join('');
+
+    document.getElementById('gmv-body').innerHTML = html || '<tr><td colspan="5" style="color:var(--text-faint);padding:1.5rem">No data.</td></tr>';
+    document.getElementById('gmv-empty').style.display = 'none';
+    document.getElementById('gmv-content').style.display = '';
+    document.getElementById('tc-gmv').textContent = resultRows.length;
+  } catch(e) {
+    console.error('runGmv error:', e);
+    alert('Error: ' + e.message);
+  }
+}
+
+(document.getElementById('export-gmv-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  if (!S.gmvRows || !S.gmvRows.length) return;
+  var rows = [['Rank','Model','GMV','Product Name (Catalog)','Match Score %']];
+  S.gmvRows.forEach(function(r, i){
+    rows.push([i+1, r.model, Math.round(r.gmv), r.productName, Math.round(r.score*100)]);
+  });
+  var wb = XLSX.utils.book_new();
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:6},{wch:36},{wch:16},{wch:36},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Top 30 GMV');
+  XLSX.writeFile(wb, 'top30_gmv.xlsx');
+});
+
+// ── Expander confirmation: keep/remove per row ─────────
+var expanderKept = {};  // key: "merchantSku|||internalSku" → true/false
+
+function expanderToggleRow(key, keep) {
+  expanderKept[key] = keep;
+  var row = document.querySelector('[data-ekey="' + CSS.escape(key) + '"]');
+  if (row) {
+    row.style.opacity = keep ? '1' : '0.35';
+    var keepBtn = row.querySelector('.e-keep-btn');
+    var removeBtn = row.querySelector('.e-remove-btn');
+    if (keepBtn) keepBtn.style.fontWeight = keep ? '700' : '400';
+    if (removeBtn) removeBtn.style.fontWeight = keep ? '400' : '700';
+  }
+  updateExpanderKeptCount();
+}
+
+function updateExpanderKeptCount() {
+  var kept = Object.keys(expanderKept).filter(function(k){ return expanderKept[k]; }).length;
+  var total = Object.keys(expanderKept).length;
+  var el = document.getElementById('expander-kept-count');
+  if (el) el.textContent = kept + ' of ' + total + ' rows kept for export';
+}
+
+(document.getElementById('expander-select-all-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  Object.keys(expanderKept).forEach(function(k){ expanderToggleRow(k, true); });
+});
+(document.getElementById('expander-remove-all-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
+  Object.keys(expanderKept).forEach(function(k){ expanderToggleRow(k, false); });
 });
 
 // ── Init ───────────────────────────────────────────────
@@ -1443,6 +1802,8 @@ buildSidebar('contracts');
 document.getElementById('view-contracts').style.display = '';
 document.getElementById('view-mapper').style.display = 'none';
 document.getElementById('view-expander').style.display = 'none';
+document.getElementById('view-endorsement').style.display = 'none';
+document.getElementById('view-gmv').style.display = 'none';
 S.expandedRows = null;
 
 })();
