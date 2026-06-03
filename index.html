@@ -1230,6 +1230,39 @@ document.getElementById('export-recs-btn').addEventListener('click', function(){
   });
   dlCsv('recommendations.csv', rows);
 });
+// ── Shared XLSX export helper ──────────────────────────
+function buildMappingXlsx(dataRows, dateStr, filename) {
+  var headers = [
+    'DATE ADDED', 'REQUESTOR', 'MERCHANT NAME', 'CAMPAIGN NAME', 'BATCH #', 'LINE #',
+    'APPLICABLE COMMODITY', 'MPL PARENT CATEGORY', 'MPL PRODUCT TYPE', 'BRAND',
+    'MODEL', 'IDENTIFIER', 'PRODUCT NAME', 'PRODUCT DESCRIPTION', 'LINK TO PHOTO',
+    'ADDITIONAL PRODUCT DETAILS', 'SRP', 'POS PRODUCT NAME', 'LOAN TERM OVERRIDE',
+    'LONGEST APPLICABLE TERM [GREY]', 'APPLICABLE COMMODITY + POS PRODUCT NAME [GREY]',
+    'PROMO START DATE', 'PROMO END DATE', 'DISCOUNT %', 'DISCOUNT AMOUNT', 'PROMO END DATE'
+  ];
+  var wsData = [headers];
+  dataRows.forEach(function(r) {
+    var row = new Array(26).fill('');
+    row[0]  = dateStr;
+    row[4]  = 1;
+    row[5]  = r.lineNum;
+    row[9]  = r.brand;
+    row[10] = r.merchantSku;
+    row[11] = r.bestMatch;
+    row[16] = r.price;
+    wsData.push(row);
+  });
+  var wb = XLSX.utils.book_new();
+  var ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    {wch:12},{wch:14},{wch:16},{wch:16},{wch:8},{wch:7},{wch:22},{wch:22},
+    {wch:18},{wch:14},{wch:36},{wch:36},{wch:18},{wch:22},{wch:16},{wch:24},
+    {wch:10},{wch:18},{wch:18},{wch:26},{wch:34},{wch:14},{wch:14},{wch:12},{wch:16},{wch:14}
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'SKU Mapping');
+  XLSX.writeFile(wb, filename);
+}
+
 document.getElementById('export-mapper-btn').addEventListener('click', function(){
   if (!S.mapping.length) return;
 
@@ -1240,13 +1273,10 @@ document.getElementById('export-mapper-btn').addEventListener('click', function(
   var dataRows = [];
   S.mapping.forEach(function(r, idx) {
     var bestSku = r.best && r.best.cat ? r.best.cat.internal_sku : '';
-    // Extract brand: first word after the first "-" in internal sku
+    // Brand = first word of the internal SKU (before any space or dash)
     var brand = '';
     if (bestSku) {
-      var dashIdx = bestSku.indexOf('-');
-      if (dashIdx > -1) {
-        brand = bestSku.slice(dashIdx + 1).split('-')[0].trim();
-      }
+      brand = bestSku.split(/[\s\-]/)[0].trim();
     }
     var price = S.merchantPrices[r.merchantSku] || '';
 
@@ -1261,88 +1291,7 @@ document.getElementById('export-mapper-btn').addEventListener('click', function(
     });
   });
 
-  // Column headers exactly as specified (A through AA, no X)
-  var headers = [
-    'DATE ADDED',          // A
-    'REQUESTOR',           // B
-    'MERCHANT NAME',       // C
-    'CAMPAIGN NAME',       // D
-    'BATCH #',             // E
-    'LINE #',              // F
-    'APPLICABLE COMMODITY',// G
-    'MPL PARENT CATEGORY', // H
-    'MPL PRODUCT TYPE',    // I
-    'BRAND',               // J
-    'MODEL',               // K
-    'IDENTIFIER',          // L
-    'PRODUCT NAME',        // M
-    'PRODUCT DESCRIPTION', // N
-    'LINK TO PHOTO',       // O
-    'ADDITIONAL PRODUCT DETAILS', // P
-    'SRP',                 // Q
-    'POS PRODUCT NAME',    // R
-    'LOAN TERM OVERRIDE',  // S
-    'LONGEST APPLICABLE TERM', // T
-    'APPLICABLE COMMODITY + POS PRODUCT NAME', // U
-    'PROMO START DATE',    // V
-    'PROMO END DATE',      // W
-    'DISCOUNT %',          // Y (no X col)
-    'DISCOUNT AMOUNT',     // Z
-    'PROMO END DATE'       // AA
-  ];
-
-  var wsData = [headers];
-  dataRows.forEach(function(r) {
-    var row = new Array(26).fill('');
-    row[0]  = dateStr;    // A DATE ADDED
-    row[1]  = '';         // B REQUESTOR
-    row[2]  = '';         // C MERCHANT NAME
-    row[3]  = '';         // D CAMPAIGN NAME
-    row[4]  = 1;          // E BATCH #
-    row[5]  = r.lineNum;  // F LINE #
-    row[6]  = '';         // G APPLICABLE COMMODITY
-    row[7]  = '';         // H MPL PARENT CATEGORY
-    row[8]  = '';         // I MPL PRODUCT TYPE
-    row[9]  = r.brand;    // J BRAND
-    row[10] = r.merchantSku; // K MODEL
-    row[11] = r.bestMatch;   // L IDENTIFIER
-    row[12] = '';         // M PRODUCT NAME
-    row[13] = '';         // N PRODUCT DESCRIPTION
-    row[14] = '';         // O LINK TO PHOTO
-    row[15] = '';         // P ADDITIONAL PRODUCT DETAILS
-    row[16] = r.price;    // Q SRP
-    row[17] = '';         // R POS PRODUCT NAME
-    row[18] = '';         // S LOAN TERM OVERRIDE
-    row[19] = '';         // T LONGEST APPLICABLE TERM (grey)
-    row[20] = '';         // U APPLICABLE COMMODITY + POS (grey)
-    row[21] = '';         // V PROMO START DATE
-    row[22] = '';         // W PROMO END DATE
-    row[23] = '';         // Y DISCOUNT %
-    row[24] = '';         // Z DISCOUNT AMOUNT
-    row[25] = '';         // AA PROMO END DATE
-    wsData.push(row);
-  });
-
-  var wb = XLSX.utils.book_new();
-  var ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // Column widths
-  ws['!cols'] = [
-    {wch:12},{wch:14},{wch:16},{wch:16},{wch:8},{wch:7},{wch:22},{wch:22},
-    {wch:18},{wch:14},{wch:36},{wch:36},{wch:18},{wch:22},{wch:16},{wch:24},
-    {wch:10},{wch:18},{wch:18},{wch:22},{wch:30},{wch:14},{wch:14},{wch:12},{wch:16},{wch:14}
-  ];
-
-  // Apply grey fill to cols T (idx 19) and U (idx 20) using cell styles
-  // SheetJS CE doesn't support cell styles natively — mark with a note instead
-  // We'll write the grey columns with a placeholder so users know to grey them manually
-  // (Full cell styling requires SheetJS Pro; note added in header instead)
-  var greyNote = ' [GREY]';
-  if (ws['T1']) ws['T1'].v = 'LONGEST APPLICABLE TERM' + greyNote;
-  if (ws['U1']) ws['U1'].v = 'APPLICABLE COMMODITY + POS PRODUCT NAME' + greyNote;
-
-  XLSX.utils.book_append_sheet(wb, ws, 'SKU Mapping');
-  XLSX.writeFile(wb, 'sku_mapping.xlsx');
+  buildMappingXlsx(dataRows, dateStr, 'sku_mapping.xlsx');
 });
 
 // ── Catalog Explorer (Contracts mode) ─────────────────
@@ -1467,17 +1416,26 @@ function runExpander() {
 
 document.getElementById('export-expander-btn').addEventListener('click', function(){
   if (!S.expandedRows) return;
-  var rows = [['Merchant SKU', 'Internal SKU ID', 'Match Score %']];
-  S.expandedRows.forEach(function(r){
+
+  var today = new Date();
+  var dateStr = (today.getMonth()+1) + '/' + today.getDate() + '/' + today.getFullYear();
+
+  // One row per expanded match (each colorway gets its own row)
+  var dataRows = [];
+  var lineNum = 1;
+  S.expandedRows.forEach(function(r) {
+    var price = S.merchantPrices[r.merchantSku] || '';
     if (!r.matches.length) {
-      rows.push([r.merchantSku, 'No match', '']);
+      dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: '', brand: '', price: price });
     } else {
-      r.matches.forEach(function(m){
-        rows.push([r.merchantSku, m.sku, Math.round(m.score * 100)]);
+      r.matches.forEach(function(m) {
+        var brand = m.sku ? m.sku.split(/[\s\-]/)[0].trim() : '';
+        dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: m.sku, brand: brand, price: price });
       });
     }
   });
-  dlCsv('expanded_skus.csv', rows);
+
+  buildMappingXlsx(dataRows, dateStr, 'expanded_skus.xlsx');
 });
 
 // ── Init ───────────────────────────────────────────────
