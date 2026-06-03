@@ -369,7 +369,7 @@
         <div class="tbl-wrap">
           <table>
             <thead><tr>
-              <th>Merchant SKU</th><th>Best Match</th><th>Score</th><th>Other candidates</th>
+              <th>Merchant SKU</th><th>Price</th><th>Best Match</th><th>Score</th><th>Other candidates</th>
             </tr></thead>
             <tbody id="mapper-body"></tbody>
           </table>
@@ -448,7 +448,8 @@ var S = {
   catalogSkus: [],   // flat string array of Internal SKU IDs — used by contracts analysis + expander
   analysis: null,
   mapping: [],
-  expandedRows: null
+  expandedRows: null,
+  merchantPrices: {}
 };
 
 var SLOTS = {
@@ -754,6 +755,13 @@ function textToSkus(text) {
 function rowsToSkus(rows) {
   if (!rows || !rows.length) return [];
   var start = /^(sku|model|name|product)$/i.test(String(rows[0][0]||'').trim()) ? 1 : 0;
+  // Also capture price from col B — store in S.merchantPrices keyed by sku
+  S.merchantPrices = {};
+  rows.slice(start).forEach(function(r){
+    var sku = String(r[0]||'').trim();
+    var price = r[1] !== undefined && r[1] !== '' ? r[1] : '';
+    if (sku) S.merchantPrices[sku] = price;
+  });
   return rows.slice(start).map(function(r){ return String(r[0]||'').trim(); }).filter(Boolean);
 }
 
@@ -1150,6 +1158,7 @@ function runMapper() {
     }
     return '<tr>' +
       '<td class="mono" style="font-weight:500">' + esc(r.merchantSku) + '</td>' +
+      '<td class="mono" style="color:var(--text-muted)">' + esc(S.merchantPrices[r.merchantSku] || '—') + '</td>' +
       '<td><span class="mono" style="font-size:12px">' + esc(best.cat.internal_sku) + '</span>' +
         (best.cat.label !== best.cat.internal_sku ? '<div class="sub-text">' + esc(best.cat.label) + '</div>' : '') + '</td>' +
       '<td><span class="score-pill ' + sp + '">' + pct + '%</span></td>' +
@@ -1160,11 +1169,12 @@ function runMapper() {
   var unmatchedHtml = '';
   if (unmatched.length) {
     // Section divider row
-    unmatchedHtml = '<tr class="mapper-section-divider"><td colspan="4">⚠ Unmatched — below ' + Math.round(UNMATCH_THRESHOLD*100) + '% threshold · manual review recommended</td></tr>';
+    unmatchedHtml = '<tr class="mapper-section-divider"><td colspan="5">⚠ Unmatched — below ' + Math.round(UNMATCH_THRESHOLD*100) + '% threshold · manual review recommended</td></tr>';
     unmatchedHtml += unmatched.map(function(r){
       var pct = Math.round(r.best.score * 100);
       return '<tr>' +
         '<td class="mono" style="font-weight:500;color:var(--red)">' + esc(r.merchantSku) + '</td>' +
+        '<td class="mono" style="color:var(--text-muted)">' + esc(S.merchantPrices[r.merchantSku] || '—') + '</td>' +
         '<td class="mono" style="color:var(--text-muted)">' + esc(r.best.cat.internal_sku) + '</td>' +
         '<td><span class="score-pill sp-none">' + pct + '%</span></td>' +
         '<td><span class="badge b-yellow">Review</span></td>' +
@@ -1174,7 +1184,7 @@ function runMapper() {
 
   var combinedHtml = matchedHtml + unmatchedHtml;
   document.getElementById('mapper-body').innerHTML = combinedHtml ||
-    '<tr><td colspan="4" style="color:var(--text-faint);padding:1.5rem">No matches found.</td></tr>';
+    '<tr><td colspan="5" style="color:var(--text-faint);padding:1.5rem">No matches found.</td></tr>';
 
   document.getElementById('mapper-empty').style.display = 'none';
   document.getElementById('mapper-content').style.display = '';
@@ -1222,13 +1232,117 @@ document.getElementById('export-recs-btn').addEventListener('click', function(){
 });
 document.getElementById('export-mapper-btn').addEventListener('click', function(){
   if (!S.mapping.length) return;
-  var rows = [['Merchant SKU','Best Internal Match','Score %','#2 Match','#2 Score','#3 Match','#3 Score']];
-  S.mapping.forEach(function(r){
-    var row = [r.merchantSku, r.best.cat.internal_sku, Math.round(r.best.score*100)];
-    r.candidates.slice(1).forEach(function(c){ row.push(c.cat.internal_sku, Math.round(c.score*100)); });
-    rows.push(row);
+
+  var today = new Date();
+  var dateStr = (today.getMonth()+1) + '/' + today.getDate() + '/' + today.getFullYear();
+
+  // Build data rows — one per mapping result
+  var dataRows = [];
+  S.mapping.forEach(function(r, idx) {
+    var bestSku = r.best && r.best.cat ? r.best.cat.internal_sku : '';
+    // Extract brand: first word after the first "-" in internal sku
+    var brand = '';
+    if (bestSku) {
+      var dashIdx = bestSku.indexOf('-');
+      if (dashIdx > -1) {
+        brand = bestSku.slice(dashIdx + 1).split('-')[0].trim();
+      }
+    }
+    var price = S.merchantPrices[r.merchantSku] || '';
+
+    // Build col I (MPL Product Type) — try to detect from SKU
+    // cols A–AA (27 cols, skipping X so actually A-Z + AA = 27)
+    dataRows.push({
+      lineNum: idx + 1,
+      merchantSku: r.merchantSku,
+      bestMatch: bestSku,
+      brand: brand,
+      price: price
+    });
   });
-  dlCsv('sku_mapping.csv', rows);
+
+  // Column headers exactly as specified (A through AA, no X)
+  var headers = [
+    'DATE ADDED',          // A
+    'REQUESTOR',           // B
+    'MERCHANT NAME',       // C
+    'CAMPAIGN NAME',       // D
+    'BATCH #',             // E
+    'LINE #',              // F
+    'APPLICABLE COMMODITY',// G
+    'MPL PARENT CATEGORY', // H
+    'MPL PRODUCT TYPE',    // I
+    'BRAND',               // J
+    'MODEL',               // K
+    'IDENTIFIER',          // L
+    'PRODUCT NAME',        // M
+    'PRODUCT DESCRIPTION', // N
+    'LINK TO PHOTO',       // O
+    'ADDITIONAL PRODUCT DETAILS', // P
+    'SRP',                 // Q
+    'POS PRODUCT NAME',    // R
+    'LOAN TERM OVERRIDE',  // S
+    'LONGEST APPLICABLE TERM', // T
+    'APPLICABLE COMMODITY + POS PRODUCT NAME', // U
+    'PROMO START DATE',    // V
+    'PROMO END DATE',      // W
+    'DISCOUNT %',          // Y (no X col)
+    'DISCOUNT AMOUNT',     // Z
+    'PROMO END DATE'       // AA
+  ];
+
+  var wsData = [headers];
+  dataRows.forEach(function(r) {
+    var row = new Array(26).fill('');
+    row[0]  = dateStr;    // A DATE ADDED
+    row[1]  = '';         // B REQUESTOR
+    row[2]  = '';         // C MERCHANT NAME
+    row[3]  = '';         // D CAMPAIGN NAME
+    row[4]  = 1;          // E BATCH #
+    row[5]  = r.lineNum;  // F LINE #
+    row[6]  = '';         // G APPLICABLE COMMODITY
+    row[7]  = '';         // H MPL PARENT CATEGORY
+    row[8]  = '';         // I MPL PRODUCT TYPE
+    row[9]  = r.brand;    // J BRAND
+    row[10] = r.merchantSku; // K MODEL
+    row[11] = r.bestMatch;   // L IDENTIFIER
+    row[12] = '';         // M PRODUCT NAME
+    row[13] = '';         // N PRODUCT DESCRIPTION
+    row[14] = '';         // O LINK TO PHOTO
+    row[15] = '';         // P ADDITIONAL PRODUCT DETAILS
+    row[16] = r.price;    // Q SRP
+    row[17] = '';         // R POS PRODUCT NAME
+    row[18] = '';         // S LOAN TERM OVERRIDE
+    row[19] = '';         // T LONGEST APPLICABLE TERM (grey)
+    row[20] = '';         // U APPLICABLE COMMODITY + POS (grey)
+    row[21] = '';         // V PROMO START DATE
+    row[22] = '';         // W PROMO END DATE
+    row[23] = '';         // Y DISCOUNT %
+    row[24] = '';         // Z DISCOUNT AMOUNT
+    row[25] = '';         // AA PROMO END DATE
+    wsData.push(row);
+  });
+
+  var wb = XLSX.utils.book_new();
+  var ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Column widths
+  ws['!cols'] = [
+    {wch:12},{wch:14},{wch:16},{wch:16},{wch:8},{wch:7},{wch:22},{wch:22},
+    {wch:18},{wch:14},{wch:36},{wch:36},{wch:18},{wch:22},{wch:16},{wch:24},
+    {wch:10},{wch:18},{wch:18},{wch:22},{wch:30},{wch:14},{wch:14},{wch:12},{wch:16},{wch:14}
+  ];
+
+  // Apply grey fill to cols T (idx 19) and U (idx 20) using cell styles
+  // SheetJS CE doesn't support cell styles natively — mark with a note instead
+  // We'll write the grey columns with a placeholder so users know to grey them manually
+  // (Full cell styling requires SheetJS Pro; note added in header instead)
+  var greyNote = ' [GREY]';
+  if (ws['T1']) ws['T1'].v = 'LONGEST APPLICABLE TERM' + greyNote;
+  if (ws['U1']) ws['U1'].v = 'APPLICABLE COMMODITY + POS PRODUCT NAME' + greyNote;
+
+  XLSX.utils.book_append_sheet(wb, ws, 'SKU Mapping');
+  XLSX.writeFile(wb, 'sku_mapping.xlsx');
 });
 
 // ── Catalog Explorer (Contracts mode) ─────────────────
