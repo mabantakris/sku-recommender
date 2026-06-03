@@ -260,6 +260,13 @@
           <span class="mode-desc">Match merchant → internal SKUs</span>
         </span>
       </button>
+      <button class="mode-btn" data-mode="expander">
+        <span class="mode-icon">🎨</span>
+        <span class="mode-text">
+          <span class="mode-title">SKU Expander</span>
+          <span class="mode-desc">Expand general SKUs to all colorways</span>
+        </span>
+      </button>
     </div>
   </div>
 
@@ -286,6 +293,7 @@
       <button class="tab-btn active" data-tab="c-analysis">Analysis <span class="tc" id="tc-analysis">—</span></button>
       <button class="tab-btn" data-tab="c-explorer">Contract Explorer</button>
       <button class="tab-btn" data-tab="c-recs">Recommendations <span class="tc" id="tc-recs">—</span></button>
+      <button class="tab-btn" data-tab="c-catalog">Catalog Search</button>
     </div>
 
     <!-- Analysis tab -->
@@ -384,6 +392,44 @@
         </div>
       </div>
     </div>
+    <!-- Catalog Explorer tab in Contracts mode -->
+    <div class="tab-panel" id="tab-c-catalog">
+      <div class="empty" id="c-catalog-empty"><div class="e-icon">🔍</div>Upload Internal Catalog first, then search.</div>
+      <div id="c-catalog-content" style="display:none">
+        <div class="search-row">
+          <input type="text" class="search-input" id="c-catalog-search" placeholder='Search catalog e.g. "iPad Air", "128GB", "Starlight"'>
+          <button class="btn-sm" id="c-catalog-clear-btn">Clear</button>
+        </div>
+        <div class="search-hint" id="c-catalog-hint"></div>
+        <div class="tbl-wrap">
+          <table><thead><tr><th>Internal SKU ID</th></tr></thead>
+          <tbody id="c-catalog-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Expander mode -->
+  <div id="view-expander" style="display:none">
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="e-main">SKU Expander <span class="tc" id="tc-expander">—</span></button>
+    </div>
+    <div class="tab-panel active" id="tab-e-main">
+      <div class="empty" id="expander-empty"><div class="e-icon">🎨</div>Upload Merchant SKUs + Internal Catalog, then run.</div>
+      <div id="expander-content" style="display:none">
+        <div class="notice notice-info" id="expander-notice"></div>
+        <div class="section-hdr">
+          <h2>Expanded SKUs</h2>
+          <button class="btn-sm" id="export-expander-btn">↓ Export</button>
+        </div>
+        <div class="tbl-wrap">
+          <table><thead><tr>
+            <th>Merchant SKU</th><th>Matched Internal SKUs (all colorways)</th><th>Count</th>
+          </tr></thead><tbody id="expander-body"></tbody></table>
+        </div>
+      </div>
+    </div>
   </div>
 
 </main>
@@ -398,9 +444,11 @@ var TOP_N = 3;
 var S = {
   mode: 'contracts',
   contractData: [],
-  catalogData: [],
+  catalogData: [],   // object array { internal_sku, label } — used by mapper
+  catalogSkus: [],   // flat string array of Internal SKU IDs — used by contracts analysis + expander
   analysis: null,
-  mapping: []
+  mapping: [],
+  expandedRows: null
 };
 
 var SLOTS = {
@@ -411,7 +459,11 @@ var SLOTS = {
   ],
   mapper: [
     { id: 'sku',     label: 'Merchant SKUs',   req: true, accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line\nVivo V70 FE\nVivo V70 8+256' },
-    { id: 'catalog', label: 'Internal Catalog', req: true, accept: '.csv,.tsv,.txt,.xlsx', ph: 'internal_sku,label\nV70-FE-8-256,Vivo V70 FE 8GB 256GB' }
+    { id: 'catalog', label: 'Internal Catalog', req: true, accept: '.csv,.tsv,.txt,.xlsx', ph: 'Excel with Internal SKU ID in col E' }
+  ],
+  expander: [
+    { id: 'sku',     label: 'Merchant SKUs',   req: true, accept: '.csv,.txt,.tsv,.xlsx', ph: 'One SKU per line — color-agnostic\niPad Air M3 11inch 128GB WiFi\nHonor Pad X9A 6GB/128GB' },
+    { id: 'catalog', label: 'Internal Catalog', req: true, accept: '.csv,.tsv,.txt,.xlsx', ph: 'Excel with Internal SKU ID in col E' }
   ]
 };
 
@@ -616,16 +668,40 @@ function textToContracts(text) {
 
 function rowsToCatalog(rows) {
   if (!rows || !rows.length) return [];
-  // Find header row; default to col E (index 4) for "Internal SKU ID"
-  var skuCol = 4;
+  var skuCol = 4; // default col E — "Internal SKU ID"
+  var labelCol = -1, headerRowIdx = 0;
+  for (var r = 0; r < Math.min(rows.length, 5); r++) {
+    var cells = rows[r].map(function(c){ return String(c||'').toLowerCase().trim(); });
+    for (var i = 0; i < cells.length; i++) {
+      if (cells[i] === 'internal sku id' || cells[i] === 'internal_sku_id' || cells[i] === 'internal sku') {
+        skuCol = i; headerRowIdx = r;
+      }
+      if (cells[i] === 'product name' || cells[i] === 'product_name') labelCol = i;
+    }
+  }
+  if (labelCol === -1) labelCol = skuCol;
+  var seen = {}, out = [];
+  for (var i = headerRowIdx + 1; i < rows.length; i++) {
+    var row = rows[i]; if (!row) continue;
+    var sku = String(row[skuCol]||'').trim();
+    var lbl = String(row[labelCol]||'').trim() || sku;
+    if (!sku || seen[sku]) continue;
+    seen[sku] = true;
+    out.push({ internal_sku: sku, label: lbl });
+  }
+  return out;
+}
+
+// Flat string array of Internal SKU IDs from col E (index 4) — for contracts mode
+function rowsToCatalogSkus(rows) {
+  if (!rows || !rows.length) return [];
+  var skuCol = 4; // default col E
   var headerRowIdx = 0;
   for (var r = 0; r < Math.min(rows.length, 5); r++) {
     var cells = rows[r].map(function(c){ return String(c||'').toLowerCase().trim(); });
     for (var i = 0; i < cells.length; i++) {
       if (cells[i] === 'internal sku id' || cells[i] === 'internal_sku_id' || cells[i] === 'internal sku') {
-        skuCol = i;
-        headerRowIdx = r;
-        break;
+        skuCol = i; headerRowIdx = r; break;
       }
     }
   }
@@ -641,6 +717,21 @@ function rowsToCatalog(rows) {
 }
 
 function textToCatalog(text) {
+  var lines = text.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  var startIdx = (lines.length && /internal|sku|id|label/i.test(lines[0])) ? 1 : 0;
+  var seen = {}, out = [];
+  for (var i = startIdx; i < lines.length; i++) {
+    var parts = lines[i].split(/,|\t/);
+    var sku = (parts[0]||'').trim().replace(/^["']|["']$/g,'');
+    var lbl = (parts[1]||parts[0]||'').trim().replace(/^["']|["']$/g,'');
+    if (!sku || seen[sku]) continue;
+    seen[sku] = true;
+    out.push({ internal_sku: sku, label: lbl || sku });
+  }
+  return out;
+}
+
+function textToCatalogSkus(text) {
   var lines = text.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
   var startIdx = (lines.length && /internal|sku|id/i.test(lines[0])) ? 1 : 0;
   var seen = {}, out = [];
@@ -716,8 +807,10 @@ function wireSlot(slotId) {
         refreshContractExplorer();
       } else if (slotId === 'catalog') {
         S.catalogData = result.rows ? rowsToCatalog(result.rows) : textToCatalog(result.text || '');
+        S.catalogSkus = result.rows ? rowsToCatalogSkus(result.rows) : textToCatalogSkus(result.text || '');
         invalidateCatalogCache();
         refreshCatalogExplorer();
+        refreshContractCatalogExplorer();
       } else if (slotId === 'sku' && result.rows) {
         ta.value = rowsToSkus(result.rows).join('\n');
       } else if (slotId === 'sku') {
@@ -731,7 +824,7 @@ function wireSlot(slotId) {
     fi.value = ''; slotData[slotId] = { rows: null, text: '' };
     if (ta) ta.value = '';
     if (slotId === 'contract') { S.contractData = []; refreshContractExplorer(); }
-    if (slotId === 'catalog') { S.catalogData = []; invalidateCatalogCache(); refreshCatalogExplorer(); }
+    if (slotId === 'catalog') { S.catalogData = []; S.catalogSkus = []; invalidateCatalogCache(); refreshCatalogExplorer(); }
   });
   if (ta) {
     ta.addEventListener('input', function(){
@@ -740,6 +833,7 @@ function wireSlot(slotId) {
         refreshContractExplorer();
       } else if (slotId === 'catalog') {
         S.catalogData = textToCatalog(ta.value);
+        S.catalogSkus = textToCatalogSkus(ta.value);
         invalidateCatalogCache();
         refreshCatalogExplorer();
       }
@@ -755,6 +849,7 @@ document.querySelectorAll('.mode-btn').forEach(function(btn){
     document.querySelectorAll('.mode-btn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-mode') === m); });
     document.getElementById('view-contracts').style.display = m === 'contracts' ? '' : 'none';
     document.getElementById('view-mapper').style.display = m === 'mapper' ? '' : 'none';
+    document.getElementById('view-expander').style.display = m === 'expander' ? '' : 'none';
     buildSidebar(m);
   });
 });
@@ -861,7 +956,8 @@ document.getElementById('m-explorer-clear-btn').addEventListener('click', functi
 // ── Run ────────────────────────────────────────────────
 document.getElementById('run-btn').addEventListener('click', function(){
   if (S.mode === 'contracts') runContracts();
-  else runMapper();
+  else if (S.mode === 'mapper') runMapper();
+  else if (S.mode === 'expander') runExpander();
 });
 
 function getMerchantSkus() {
@@ -890,20 +986,19 @@ function runContracts() {
   }
   if (!S.contractData || !S.contractData.length) { alert('Please provide or upload contract data.'); return; }
 
-  // Parse catalog if uploaded via textarea (file upload handled in wireSlot)
+  // Parse catalog if pasted via textarea (file upload handled in wireSlot)
   var taCatalog = document.getElementById('ta-catalog');
   if (taCatalog && !(slotData.catalog && slotData.catalog.rows)) {
-    S.catalogData = textToCatalog(taCatalog.value || '');
+    S.catalogSkus = textToCatalogSkus(taCatalog.value || '');
   }
 
-  // Fuzzy match each merchant SKU against catalog — runs only on the small submitted list
+  // Fuzzy match merchant SKU against catalog SKU IDs — top 3 candidates
   function matchCatalog(merchantSku) {
-    if (!S.catalogData.length) return [];
+    if (!S.catalogSkus.length) return [];
     var scored = [];
-    for (var i = 0; i < S.catalogData.length; i++) {
-      var catStr = typeof S.catalogData[i] === 'string' ? S.catalogData[i] : (S.catalogData[i].internal_sku || '');
-      var s = smartScore(merchantSku, catStr);
-      if (s > 0) scored.push({ sku: catStr, score: s });
+    for (var i = 0; i < S.catalogSkus.length; i++) {
+      var s = smartScore(merchantSku, S.catalogSkus[i]);
+      if (s > 0) scored.push({ sku: S.catalogSkus[i], score: s });
     }
     scored.sort(function(a, b){ return b.score - a.score; });
     return scored.slice(0, 3);
@@ -954,7 +1049,7 @@ function runContracts() {
     var bc = r.worth ? 'b-green' : (r.matches.length ? 'b-red' : 'b-gray');
     var bl = r.worth ? 'Worth it' : (r.matches.length ? 'Not worth' : 'No data');
     var catCell = '';
-    if (!S.catalogData.length) {
+    if (!S.catalogSkus.length) {
       catCell = '<span style="color:var(--text-faint);font-size:11px">—</span>';
     } else if (!r.catalogMatches.length) {
       catCell = '<span class="badge b-gray">No match</span>';
@@ -1136,10 +1231,147 @@ document.getElementById('export-mapper-btn').addEventListener('click', function(
   dlCsv('sku_mapping.csv', rows);
 });
 
+// ── Catalog Explorer (Contracts mode) ─────────────────
+function refreshContractCatalogExplorer() {
+  var hasCatalog = S.catalogSkus && S.catalogSkus.length;
+  document.getElementById('c-catalog-empty').style.display = hasCatalog ? 'none' : '';
+  document.getElementById('c-catalog-content').style.display = hasCatalog ? '' : 'none';
+  if (hasCatalog) renderContractCatalogExplorer(document.getElementById('c-catalog-search').value || '');
+}
+
+function renderContractCatalogExplorer(q) {
+  var skus = S.catalogSkus || [];
+  var filtered = q.trim()
+    ? skus.filter(function(s){ return s.toLowerCase().indexOf(q.toLowerCase()) > -1; })
+    : skus;
+  document.getElementById('c-catalog-hint').textContent = q.trim()
+    ? filtered.length + ' result' + (filtered.length !== 1 ? 's' : '') + ' for "' + q + '"'
+    : filtered.length + ' total entries — type to filter';
+  var html = filtered.slice(0, 300).map(function(s){
+    var display = esc(s);
+    if (q.trim()) {
+      var idx = s.toLowerCase().indexOf(q.toLowerCase());
+      if (idx > -1) display = esc(s.slice(0,idx)) + '<mark style="background:#fef9c3;border-radius:2px">' + esc(s.slice(idx,idx+q.length)) + '</mark>' + esc(s.slice(idx+q.length));
+    }
+    return '<tr><td class="mono">' + display + '</td></tr>';
+  }).join('');
+  document.getElementById('c-catalog-body').innerHTML = html || '<tr><td style="color:var(--text-faint);padding:1.5rem">No results.</td></tr>';
+}
+
+var cCatalogSearchTimer = null;
+document.getElementById('c-catalog-search').addEventListener('input', function(){
+  var val = this.value;
+  clearTimeout(cCatalogSearchTimer);
+  cCatalogSearchTimer = setTimeout(function(){ renderContractCatalogExplorer(val); }, 180);
+});
+document.getElementById('c-catalog-clear-btn').addEventListener('click', function(){
+  document.getElementById('c-catalog-search').value = '';
+  renderContractCatalogExplorer('');
+});
+
+// ── SKU Expander ───────────────────────────────────────
+// Color tokens to ignore when matching model — strip these before comparing
+var COLOR_TOKENS = [
+  'black','white','silver','gold','blue','red','green','yellow','purple','pink',
+  'orange','grey','gray','rose','midnight','starlight','space','coral','cream',
+  'lavender','violet','cyan','titanium','natural','desert','sand','olive',
+  'graphite','phantom','mystic','prism','aura','bronze','copper','champagne',
+  'teal','navy','lilac','mint','sage','slate','storm','sky','cloud','earth',
+  'brown','beige','charcoal','onyx','pearl','ivory','nude','blush','mauve',
+  'indigo','cobalt','azure','turquoise','magenta','maroon','crimson','scarlet'
+];
+
+function stripColors(s) {
+  var tokens = tok(s);
+  return tokens.filter(function(t){ return COLOR_TOKENS.indexOf(t) === -1; }).join(' ');
+}
+
+function expandScore(merchantSku, internalSku) {
+  // Score based on color-stripped tokens only
+  var mt = stripColors(merchantSku).split(' ').filter(Boolean);
+  var it = stripColors(internalSku).split(' ').filter(Boolean);
+  if (!mt.length || !it.length) return 0;
+  return scoreTokens(mt, it);
+}
+
+function runExpander() {
+  var merchantSkus = getMerchantSkus();
+  if (!merchantSkus.length) { alert('Please enter or upload at least one merchant SKU.'); return; }
+  if (!S.catalogSkus || !S.catalogSkus.length) { alert('Please upload the Internal Catalog.'); return; }
+
+  var EXPAND_THRESHOLD = 0.55; // must match on non-color tokens at this level
+
+  var expandedRows = merchantSkus.map(function(merchantSku) {
+    // Find all catalog SKUs that match on color-stripped tokens
+    var matches = [];
+    S.catalogSkus.forEach(function(internalSku) {
+      var score = expandScore(merchantSku, internalSku);
+      if (score >= EXPAND_THRESHOLD) {
+        matches.push({ sku: internalSku, score: score });
+      }
+    });
+    matches.sort(function(a, b){ return b.score - a.score; });
+    return { merchantSku: merchantSku, matches: matches };
+  });
+
+  S.expandedRows = expandedRows;
+
+  var totalMatches = expandedRows.reduce(function(s, r){ return s + r.matches.length; }, 0);
+  var noMatchCount = expandedRows.filter(function(r){ return !r.matches.length; }).length;
+
+  document.getElementById('expander-notice').textContent =
+    expandedRows.length + ' merchant SKUs expanded → ' + totalMatches + ' internal SKU variants found' +
+    (noMatchCount ? ' · ' + noMatchCount + ' with no match' : '');
+
+  var html = expandedRows.map(function(r) {
+    if (!r.matches.length) {
+      return '<tr>' +
+        '<td class="mono" style="font-weight:500;color:var(--red)">' + esc(r.merchantSku) + '</td>' +
+        '<td colspan="2"><span class="badge b-gray">No matches found</span></td>' +
+        '</tr>';
+    }
+    var skuList = r.matches.map(function(m) {
+      var pct = Math.round(m.score * 100);
+      var sp = pct >= 80 ? 'sp-high' : pct >= 60 ? 'sp-mid' : 'sp-low';
+      return '<div class="candidate" style="padding:2px 0">' +
+        '<span class="c-name" style="font-family:var(--mono);font-size:12px;color:var(--text)">' + esc(m.sku) + '</span>' +
+        '<span class="score-pill ' + sp + '">' + pct + '%</span>' +
+        '</div>';
+    }).join('');
+    return '<tr>' +
+      '<td class="mono" style="font-weight:500;vertical-align:top">' + esc(r.merchantSku) + '</td>' +
+      '<td>' + skuList + '</td>' +
+      '<td class="mono" style="vertical-align:top;color:var(--text-muted)">' + r.matches.length + '</td>' +
+      '</tr>';
+  }).join('');
+
+  document.getElementById('expander-body').innerHTML = html;
+  document.getElementById('expander-empty').style.display = 'none';
+  document.getElementById('expander-content').style.display = '';
+  document.getElementById('tc-expander').textContent = totalMatches;
+}
+
+document.getElementById('export-expander-btn').addEventListener('click', function(){
+  if (!S.expandedRows) return;
+  var rows = [['Merchant SKU', 'Internal SKU ID', 'Match Score %']];
+  S.expandedRows.forEach(function(r){
+    if (!r.matches.length) {
+      rows.push([r.merchantSku, 'No match', '']);
+    } else {
+      r.matches.forEach(function(m){
+        rows.push([r.merchantSku, m.sku, Math.round(m.score * 100)]);
+      });
+    }
+  });
+  dlCsv('expanded_skus.csv', rows);
+});
+
 // ── Init ───────────────────────────────────────────────
 buildSidebar('contracts');
 document.getElementById('view-contracts').style.display = '';
 document.getElementById('view-mapper').style.display = 'none';
+document.getElementById('view-expander').style.display = 'none';
+S.expandedRows = null;
 
 })();
 </script>
