@@ -1459,58 +1459,119 @@ function runExpander() {
     expandedRows.length + ' merchant SKUs expanded → ' + totalMatches + ' internal SKU variants found' +
     (noMatchCount ? ' · ' + noMatchCount + ' with no match' : '');
 
-  // Reset kept state
+  // Reset state
   expanderKept = {};
+  window.expanderOverrides = {};
+  window.expanderPendingOverrides = {};
+  var rowId = 0;
 
-  var html = expandedRows.map(function(r) {
+  var htmlParts = [];
+  expandedRows.forEach(function(r) {
     if (!r.matches.length) {
-      var key = r.merchantSku + '|||__none__';
-      expanderKept[key] = false;
-      return '<tr data-ekey="' + esc(key) + '" style="opacity:0.35">' +
-        '<td class="mono" style="font-weight:500;color:var(--red)">' + esc(r.merchantSku) + '</td>' +
-        '<td colspan="2"><span class="badge b-gray">No matches found</span></td>' +
-        '<td><button class="btn-sm e-keep-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',true)" style="color:var(--green)">✓ Keep</button>' +
-        '<button class="btn-sm e-remove-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',false)" style="color:var(--red);font-weight:700;margin-left:3px">✗ Remove</button></td>' +
-        '</tr>';
-    }
-    return r.matches.map(function(m) {
-      var key = r.merchantSku + '|||' + m.sku;
-      expanderKept[key] = true;
-      var pct = Math.round(m.score * 100);
-      var sp = pct >= 80 ? 'sp-high' : pct >= 60 ? 'sp-mid' : 'sp-low';
-      // Override textbox
-      var overrideId = 'ov-' + key.replace(/[^a-z0-9]/gi,'_');
-      return '<tr data-ekey="' + esc(key) + '">' +
-        '<td class="mono" style="font-weight:500;vertical-align:middle">' + esc(r.merchantSku) + '</td>' +
+      var rid = 'er' + (rowId++);
+      expanderKept[rid] = false;
+      htmlParts.push(
+        '<tr id="' + rid + '" class="exp-row exp-removed">' +
+        '<td class="mono" style="font-weight:500;color:var(--red);vertical-align:middle">' + esc(r.merchantSku) + '</td>' +
         '<td style="vertical-align:middle">' +
-          '<span class="mono" style="font-size:12px">' + esc(m.sku) + '</span>' +
-          '<span class="score-pill ' + sp + '" style="margin-left:6px">' + pct + '%</span>' +
-          '<div style="margin-top:4px"><input type="text" id="' + overrideId + '" placeholder="Override match..." ' +
-            'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;width:100%;max-width:280px;background:var(--bg)" ' +
-            'onchange="expanderOverride(' + JSON.stringify(key) + ',this.value)"></div>' +
+          '<span class="badge b-gray">No match</span>' +
+          '<div style="margin-top:5px">' +
+            '<input type="text" class="exp-override-input" data-rid="' + rid + '" placeholder="Type override SKU..." ' +
+            'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;width:240px;background:var(--surface)">' +
+          '</div>' +
+          '<div id="' + rid + '-confirm" class="exp-confirm" style="display:none;margin-top:5px">' +
+            '<span style="font-size:11px;color:var(--text-muted);margin-right:6px">Add this override?</span>' +
+            '<button class="btn-sm exp-confirm-keep" data-rid="' + rid + '" style="color:var(--green)">✓ Keep</button>' +
+            '<button class="btn-sm exp-confirm-remove" data-rid="' + rid + '" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
+          '</div>' +
         '</td>' +
-        '<td class="mono" style="vertical-align:middle;color:var(--text-muted)">1</td>' +
+        '<td style="vertical-align:middle">—</td>' +
         '<td style="vertical-align:middle;white-space:nowrap">' +
-          '<button class="btn-sm e-keep-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',true)" style="color:var(--green);font-weight:700">✓ Keep</button>' +
-          '<button class="btn-sm e-remove-btn" onclick="expanderToggleRow(' + JSON.stringify(key) + ',false)" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
+          '<button class="btn-sm exp-keep-btn" data-rid="' + rid + '" style="color:var(--text-faint)">✓ Keep</button>' +
+          '<button class="btn-sm exp-remove-btn" data-rid="' + rid + '" style="color:var(--red);font-weight:700;margin-left:3px">✗ Remove</button>' +
         '</td>' +
-        '</tr>';
-    }).join('');
-  }).join('');
+        '</tr>'
+      );
+    } else {
+      r.matches.forEach(function(m) {
+        var rid = 'er' + (rowId++);
+        expanderKept[rid] = true;
+        var pct = Math.round(m.score * 100);
+        var sp = pct >= 80 ? 'sp-high' : pct >= 60 ? 'sp-mid' : 'sp-low';
+        htmlParts.push(
+          '<tr id="' + rid + '" class="exp-row exp-kept">' +
+          '<td class="mono" style="font-weight:500;vertical-align:middle">' + esc(r.merchantSku) + '</td>' +
+          '<td style="vertical-align:middle">' +
+            '<span class="mono" style="font-size:12px">' + esc(m.sku) + '</span>' +
+            '<span class="score-pill ' + sp + '" style="margin-left:6px">' + pct + '%</span>' +
+            '<div style="margin-top:5px">' +
+              '<input type="text" class="exp-override-input" data-rid="' + rid + '" placeholder="Override SKU (optional)..." ' +
+              'style="font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;width:240px;background:var(--surface)">' +
+            '</div>' +
+            '<div id="' + rid + '-confirm" class="exp-confirm" style="display:none;margin-top:5px">' +
+              '<span style="font-size:11px;color:var(--text-muted);margin-right:6px">Use this override?</span>' +
+              '<button class="btn-sm exp-confirm-keep" data-rid="' + rid + '" style="color:var(--green)">✓ Keep</button>' +
+              '<button class="btn-sm exp-confirm-remove" data-rid="' + rid + '" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
+            '</div>' +
+          '</td>' +
+          '<td class="mono" style="vertical-align:middle;color:var(--text-muted)">' + pct + '%</td>' +
+          '<td style="vertical-align:middle;white-space:nowrap">' +
+            '<button class="btn-sm exp-keep-btn" data-rid="' + rid + '" style="color:var(--green);font-weight:700">✓ Keep</button>' +
+            '<button class="btn-sm exp-remove-btn" data-rid="' + rid + '" style="color:var(--red);margin-left:3px">✗ Remove</button>' +
+          '</td>' +
+          '</tr>'
+        );
+      });
+    }
+  });
 
-  document.getElementById('expander-body').innerHTML = html;
+  var tbody = document.getElementById('expander-body');
+  tbody.innerHTML = htmlParts.join('');
+
+  // Wire events via delegation on tbody — zero inline JS, zero quote issues
+  tbody.addEventListener('click', function(e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    var rid = btn.getAttribute('data-rid');
+    if (!rid) return;
+    if (btn.classList.contains('exp-keep-btn'))       { expanderToggleRow(rid, true); }
+    if (btn.classList.contains('exp-remove-btn'))     { expanderToggleRow(rid, false); }
+    if (btn.classList.contains('exp-confirm-keep'))   { expanderSetOverride(rid, true); }
+    if (btn.classList.contains('exp-confirm-remove')) { expanderSetOverride(rid, false); }
+  });
+  tbody.addEventListener('input', function(e) {
+    var inp = e.target.closest('.exp-override-input');
+    if (!inp) return;
+    expanderHandleOverride(inp.getAttribute('data-rid'), inp.value);
+  });
+
   document.getElementById('expander-empty').style.display = 'none';
   document.getElementById('expander-content').style.display = '';
   document.getElementById('tc-expander').textContent = totalMatches;
+  updateExpanderKeptCount();
 }
 
-// Override a specific row's internal SKU match
-function expanderOverride(key, newVal) {
-  if (newVal.trim()) {
-    // Store override so export uses it
-    if (!window.expanderOverrides) window.expanderOverrides = {};
-    window.expanderOverrides[key] = newVal.trim();
+// Called while typing in override box — show confirm buttons
+function expanderHandleOverride(rid, val) {
+  var confirmEl = document.getElementById(rid + '-confirm');
+  if (!confirmEl) return;
+  confirmEl.style.display = val.trim() ? 'block' : 'none';
+  // Store tentative override value
+  if (!window.expanderPendingOverrides) window.expanderPendingOverrides = {};
+  window.expanderPendingOverrides[rid] = val.trim();
+}
+
+// Called when user clicks Keep/Remove on override confirm
+function expanderSetOverride(rid, keep) {
+  var val = window.expanderPendingOverrides && window.expanderPendingOverrides[rid];
+  if (val) {
+    window.expanderOverrides[rid] = val;
   }
+  // Hide confirm row
+  var confirmEl = document.getElementById(rid + '-confirm');
+  if (confirmEl) confirmEl.style.display = 'none';
+  // Apply keep/remove to the row
+  expanderToggleRow(rid, keep);
 }
 
 (document.getElementById('export-expander-btn') || {addEventListener:function(){}}).addEventListener('click', function(){
@@ -1519,27 +1580,26 @@ function expanderOverride(key, newVal) {
   var dateStr = (today.getMonth()+1) + '/' + today.getDate() + '/' + today.getFullYear();
   var dataRows = [];
   var lineNum = 1;
+  var rid = 0;
   S.expandedRows.forEach(function(r) {
     var price = S.merchantPrices[r.merchantSku] || '';
     if (!r.matches.length) {
-      var key = r.merchantSku + '|||__none__';
-      if (expanderKept[key] === false) return;
-      var override = window.expanderOverrides && window.expanderOverrides[key];
-      var finalSku = override || '';
+      var rowId = 'er' + (rid++);
+      if (!expanderKept[rowId]) return;
+      var finalSku = (window.expanderOverrides && window.expanderOverrides[rowId]) || '';
       dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: finalSku,
         brand: finalSku ? finalSku.split(/[\s\-]/)[0].trim() : '', price: price });
     } else {
       r.matches.forEach(function(m) {
-        var key = r.merchantSku + '|||' + m.sku;
-        if (expanderKept[key] === false) return;
-        var override = window.expanderOverrides && window.expanderOverrides[key];
-        var finalSku = override || m.sku;
+        var rowId = 'er' + (rid++);
+        if (!expanderKept[rowId]) return;
+        var finalSku = (window.expanderOverrides && window.expanderOverrides[rowId]) || m.sku;
         var brand = finalSku ? finalSku.split(/[\s\-]/)[0].trim() : '';
         dataRows.push({ lineNum: lineNum++, merchantSku: r.merchantSku, bestMatch: finalSku, brand: brand, price: price });
       });
     }
   });
-  if (!dataRows.length) { alert('No rows kept for export. Use ✓ Keep to select rows.'); return; }
+  if (!dataRows.length) { alert('No rows kept for export. Use ✓ Keep to select rows first.'); return; }
   buildMappingXlsx(dataRows, dateStr, 'expanded_skus.xlsx');
 });
 
@@ -1768,17 +1828,18 @@ function runGmv() {
 });
 
 // ── Expander confirmation: keep/remove per row ─────────
-var expanderKept = {};  // key: "merchantSku|||internalSku" → true/false
+var expanderKept = {};  // rid → true/false
 
-function expanderToggleRow(key, keep) {
-  expanderKept[key] = keep;
-  var row = document.querySelector('[data-ekey="' + CSS.escape(key) + '"]');
+function expanderToggleRow(rid, keep) {
+  expanderKept[rid] = keep;
+  var row = document.getElementById(rid);
   if (row) {
-    row.style.opacity = keep ? '1' : '0.35';
-    var keepBtn = row.querySelector('.e-keep-btn');
-    var removeBtn = row.querySelector('.e-remove-btn');
-    if (keepBtn) keepBtn.style.fontWeight = keep ? '700' : '400';
-    if (removeBtn) removeBtn.style.fontWeight = keep ? '400' : '700';
+    row.style.opacity = keep ? '1' : '0.4';
+    row.style.background = keep ? '' : 'var(--red-bg)';
+    // Update button weights
+    var btns = row.querySelectorAll('td:last-child .btn-sm');
+    if (btns[0]) btns[0].style.fontWeight = keep ? '700' : '400';  // Keep btn
+    if (btns[1]) btns[1].style.fontWeight = keep ? '400' : '700';  // Remove btn
   }
   updateExpanderKeptCount();
 }
